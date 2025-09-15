@@ -8,16 +8,14 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-poppins);
 }
-
-
 
 body {
   background: #fefaf2;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-poppins), 'Poppins', sans-serif;
+  font-weight: 700;
 }
 
 .header-bar {
@@ -25,6 +23,7 @@ body {
   background: #f5e9d7;
   padding: 16px 0;
   box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+  position: relative;
 }
 
 .header-nav {
@@ -34,10 +33,51 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
+  position: relative;
 }
 
 .header-logo {
   flex: 0 0 auto;
+  z-index: 1001;
+}
+
+.header-logo img {
+  height: 70px;
+}
+
+/* Botón hamburguesa - oculto por defecto */
+.mobile-menu-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 1001;
+}
+
+.hamburger-line {
+  width: 100%;
+  height: 3px;
+  background-color: #546d58;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+  transform-origin: center;
+}
+
+.hamburger-line.open:nth-child(1) {
+  transform: rotate(45deg) translate(6px, 6px);
+}
+
+.hamburger-line.open:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger-line.open:nth-child(3) {
+  transform: rotate(-45deg) translate(8px, -8px);
 }
 
 .header-menu {
@@ -49,34 +89,7 @@ body {
   flex: 1 1 auto;
   justify-content: center;
   align-items: center;
-}
-
-.header-btn {
-  background: #546d58;
-  color: #f5f4ea !important;
-  font-weight: bold;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 20px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  text-decoration: none;
-  display: inline-block;
-  margin-left: 32px;
-  flex: 0 0 auto;
-}
-
-.header-logo img {
-  height: 32px;
-}
-
-.header-menu {
-  display: flex;
-  gap: 32px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  transition: all 0.3s ease;
 }
 
 .header-menu li a {
@@ -103,8 +116,94 @@ body {
   transition: background 0.2s;
   text-decoration: none;
   display: inline-block;
+  margin-left: 32px;
+  flex: 0 0 auto;
+  z-index: 1001;
+  position: relative;
 }
+
 .header-btn:hover {
   background: #3e5544;
 }
 
+/* Estilos responsive para móvil */
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: flex;
+  }
+
+  .header-nav {
+    padding: 0 16px;
+  }
+
+  .header-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    background: #f5e9d7;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+    margin: 0;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+  }
+
+  .header-menu.mobile-open {
+    transform: translateX(0);
+  }
+
+  .header-menu li a {
+    font-size: 1.5rem;
+    padding: 10px 20px;
+    display: block;
+  }
+
+  /* Estilos específicos para el botón de auth en móvil */
+  .mobile-auth-btn {
+    margin-top: 20px;
+  }
+
+  .header-btn.mobile {
+    font-size: 1.2rem;
+    padding: 12px 24px;
+    margin: 0;
+    border-radius: 8px;
+    background: #546d58;
+    color: #f5f4ea !important;
+  }
+
+  .header-btn.mobile:hover {
+    background: #3e5544;
+  }
+
+  /* Ocultar el botón de desktop en móvil */
+  .header-btn:not(.mobile) {
+    display: none;
+  }
+
+  .header-logo img {
+    height: 50px;
+  }
+}
+
+/* Tablet breakpoint */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .header-menu {
+    gap: 20px;
+  }
+
+  .header-menu li a {
+    font-size: 0.9rem;
+  }
+
+  .header-btn {
+    margin-left: 16px;
+    font-size: 0.9rem;
+    padding: 6px 16px;
+  }
+}
