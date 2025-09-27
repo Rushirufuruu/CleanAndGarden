@@ -1,16 +1,43 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // estados para mensajes
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Email:", email);
-    console.log("Password:", password);
-    // Aquí después llamas al backend con fetch o axios
+    setError("");
+    setSuccess("");
+
+    try {
+      const res = await fetch("http://localhost:3001/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      console.log("Respuesta del backend:", data);
+
+      if (res.ok) {
+        setSuccess("✅ Login exitoso, bienvenido 👋");
+        // Aquí podrías guardar el token o redirigir al dashboard
+        // localStorage.setItem("token", data.token)
+      } else {
+        setError(`❌ ${data.error}`);
+      }
+    } catch (err) {
+      console.error("Error al conectar con backend:", err);
+      setError("❌ Error de conexión con el servidor");
+    }
   };
 
   return (
@@ -19,6 +46,18 @@ export default function LoginPage() {
         <h1 className="mb-6 text-3xl font-bold text-center text-[#2E5430]">
           Iniciar sesión
         </h1>
+
+        {/* Mensajes */}
+        {error && (
+          <div className="alert alert-error shadow-lg mb-4">
+            <span>{error}</span>
+          </div>
+        )}
+        {success && (
+          <div className="alert alert-success shadow-lg mb-4">
+            <span>{success}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Email */}
@@ -42,7 +81,7 @@ export default function LoginPage() {
             </label>
             <div className="relative">
               <input
-                type={showPassword ? "text" : "password"} // 👁️ cambia entre text/password
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full border border-gray-300 rounded-md p-2 pr-10"
@@ -76,9 +115,9 @@ export default function LoginPage() {
 
         <p className="mt-6 text-sm text-center text-gray-600">
           ¿No tienes una cuenta?{" "}
-          <a href="#" className="font-medium text-[#2E5430] hover:underline">
+          <Link href="/register" className="font-medium text-[#2E5430] hover:underline">
             Regístrate
-          </a>
+          </Link>
         </p>
       </div>
     </div>

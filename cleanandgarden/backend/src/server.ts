@@ -62,6 +62,7 @@ app.get('/usuario', async (req, res) => {
 // - Hashea la contraseña con bcryptjs (12 rondas)
 // - Crea el registro en la tabla `usuario`
 app.post('/usuario', async (req, res) => {
+  console.log('request',req)
   try {
     const {
       nombre,
@@ -135,6 +136,7 @@ app.post('/usuario', async (req, res) => {
     })
 
     return res.status(201).json(toJSONSafe(nuevo))
+
   } catch (err: any) {
     console.error(err)
     // Manejo de error por restricción única de Prisma
@@ -143,6 +145,25 @@ app.post('/usuario', async (req, res) => {
     }
     return res.status(500).json({ error: 'Error al registrar usuario' })
   }
+})
+
+app.post('/login', async (req, res) => {
+  // recibes la clave y usuario
+  const { email, password } = req.body ?? {}
+
+  // ir a buscar a la base de datos si exite el usuario y traer la contraseña hasheada, si no existe el usuario, responder que no existe
+  const usuario = await prisma.usuario.findUnique({ where: { email } })
+  if (!usuario) {
+    return res.status(404).json({ error: 'Usuario no encontrado' })
+  }
+  // return res.status(200).json({ message: 'Usuario encontrado', user: toJSONSafe(usuario) })
+  // tomar la contrasela que eviaron en el login , hashearla y compararla con la que esta en la base de datos si son iguales, responder que el login es correcto, si no, responder que la clave es incorrecta
+  const passwordMatch = await bcrypt.compare(password, usuario.contrasena_hash)
+  console.log('passwordMatch', passwordMatch)
+  if (!passwordMatch) {
+    return res.status(401).json({ error: 'Contraseña incorrecta' })
+  }
+  return res.status(200).json({ message: 'Usuario clave correcta' })
 })
 
 // Leemos el puerto desde las variables de entorno; si no, usamos 3001 por defecto
