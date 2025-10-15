@@ -3,16 +3,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
+import { Settings, UserPlus, BarChart3 } from "lucide-react"; // 👈 nuevos íconos para admin
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isClient, setIsClient] = useState(false); // 👈 evitar render en SSR
+  const [isClient, setIsClient] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
 
-  // 🧭 Asegurar que estamos en el cliente (no SSR)
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  // ✅ Detectar cliente
+  useEffect(() => setIsClient(true), []);
 
   // ✅ Verificar sesión
   useEffect(() => {
@@ -28,14 +29,30 @@ export default function Navbar() {
 
         if (res.ok && data.user) {
           setIsLoggedIn(true);
+          setUserRole(data.user.rol);
           localStorage.setItem("isLoggedIn", "true");
+          localStorage.setItem("userRole", data.user.rol);
         } else {
-          setIsLoggedIn(false);
-          localStorage.removeItem("isLoggedIn");
+          const storedLogin = localStorage.getItem("isLoggedIn");
+          const storedRole = localStorage.getItem("userRole");
+          if (storedLogin === "true" && storedRole) {
+            setIsLoggedIn(true);
+            setUserRole(storedRole);
+          } else {
+            setIsLoggedIn(false);
+            setUserRole(null);
+          }
         }
       } catch {
-        setIsLoggedIn(false);
-        localStorage.removeItem("isLoggedIn");
+        const storedLogin = localStorage.getItem("isLoggedIn");
+        const storedRole = localStorage.getItem("userRole");
+        if (storedLogin === "true" && storedRole) {
+          setIsLoggedIn(true);
+          setUserRole(storedRole);
+        } else {
+          setIsLoggedIn(false);
+          setUserRole(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -43,20 +60,24 @@ export default function Navbar() {
 
     checkSession();
 
-    // 🔁 Escuchar eventos globales de sesión
+    // 🔁 Eventos globales de sesión
     const handleSessionChange = (event: Event) => {
       const custom = event as CustomEvent;
-      if (custom.detail === "login") setIsLoggedIn(true);
-      if (custom.detail === "logout") setIsLoggedIn(false);
+      if (custom.detail === "login") {
+        setIsLoggedIn(true);
+        setUserRole(localStorage.getItem("userRole"));
+      }
+      if (custom.detail === "logout") {
+        setIsLoggedIn(false);
+        setUserRole(null);
+      }
     };
 
     window.addEventListener("session-change", handleSessionChange);
-    return () => {
-      window.removeEventListener("session-change", handleSessionChange);
-    };
+    return () => window.removeEventListener("session-change", handleSessionChange);
   }, [isClient]);
 
-  // 🚪 Cerrar sesión con confirmación
+  // 🚪 Cerrar sesión
   const handleLogout = async () => {
     const result = await Swal.fire({
       title: "¿Cerrar sesión?",
@@ -78,16 +99,14 @@ export default function Navbar() {
       });
 
       if (res.ok) {
-        localStorage.removeItem("isLoggedIn");
+        localStorage.clear();
         window.dispatchEvent(new CustomEvent("session-change", { detail: "logout" }));
-
         await Swal.fire({
           icon: "success",
           title: "Sesión cerrada",
           showConfirmButton: false,
           timer: 1500,
         });
-
         window.location.href = "/login";
       } else {
         Swal.fire("Error", "No se pudo cerrar la sesión correctamente", "error");
@@ -97,10 +116,8 @@ export default function Navbar() {
     }
   };
 
-  // ⚙️ Evitar render antes de montar el cliente
   if (!isClient) return null;
 
-  // ⏳ Mostrar mientras valida sesión (sin error de hydration)
   if (loading)
     return (
       <div className="navbar shadow-md px-4 sticky top-0 z-50 bg-[#f5e9d7]">
@@ -137,10 +154,44 @@ export default function Navbar() {
           <li><Link href="/our-services">Servicios</Link></li>
           <li><Link href="/portfolio">Portafolio</Link></li>
           <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+
+          {/* ✅ Panel Admin moderno */}
+          {isLoggedIn && userRole === "admin" && (
+            <li className="relative">
+              <button
+                onClick={() => setShowAdminMenu(!showAdminMenu)}
+                className="flex items-center gap-2 bg-[#4a7e49] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#356c36] transition-all shadow-sm"
+              >
+                <Settings size={18} /> Panel Admin ▾
+              </button>
+
+              {showAdminMenu && (
+                <ul
+                  className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 shadow-xl rounded-xl animate-fadeIn z-50 overflow-hidden"
+                  onMouseLeave={() => setShowAdminMenu(false)}
+                >
+                  <li>
+                    <Link
+                      href="/admin/registro-jardinero"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <UserPlus size={18} /> Registrar Jardinero
+                    </Link>
+                  </li>
+                  <li>
+                    <span className="flex items-center gap-2 px-4 py-2 text-gray-400 cursor-not-allowed">
+                      <BarChart3 size={18} /> (Más opciones pronto)
+                    </span>
+                  </li>
+                </ul>
+              )}
+            </li>
+          )}
         </ul>
       </div>
 
-      {/* Zona derecha (botones sesión) */}
+      {/* Zona derecha (botones de sesión) */}
       <div className="navbar-end hidden lg:flex space-x-4">
         {!isLoggedIn ? (
           <>
@@ -203,14 +254,22 @@ export default function Navbar() {
           </label>
           <ul
             tabIndex={0}
-            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow rounded-box w-52"
-            style={{ backgroundColor: "#f5e9d7" }}
+            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow rounded-box w-52 bg-[#f5e9d7]"
           >
             <li><Link href="/">Inicio</Link></li>
             <li><Link href="/about-us">Quienes Somos</Link></li>
             <li><Link href="/our-services">Servicios</Link></li>
             <li><Link href="/portfolio">Portafolio</Link></li>
             <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+
+            {/* Panel admin móvil */}
+            {isLoggedIn && userRole === "admin" && (
+              <>
+                <li className="font-semibold text-[#2E5430]">Panel Admin</li>
+                <li><Link href="/admin/registro-jardinero">Registrar Jardinero</Link></li>
+              </>
+            )}
+
             {!isLoggedIn ? (
               <li>
                 <Link href="/login">
@@ -241,6 +300,23 @@ export default function Navbar() {
           </ul>
         </div>
       </div>
+
+      {/* 🔹 Animación fadeIn */}
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.25s ease-in-out;
+        }
+      `}</style>
     </div>
   );
 }

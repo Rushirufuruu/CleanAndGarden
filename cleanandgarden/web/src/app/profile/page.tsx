@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 export default function PerfilUsuario() {
   const [user, setUser] = useState<any>(null);
+  const [backupUser, setBackupUser] = useState<any>(null); // 👈 copia original para restaurar
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -34,6 +35,7 @@ export default function PerfilUsuario() {
           }));
 
           setUser(usuario);
+          setBackupUser(JSON.parse(JSON.stringify(usuario))); // 👈 guardamos copia profunda
         }
       } catch (err) {
         console.error("Error al cargar perfil:", err);
@@ -140,6 +142,7 @@ export default function PerfilUsuario() {
           showConfirmButton: false,
         });
         setEditMode(false);
+        setBackupUser(JSON.parse(JSON.stringify(user))); // 👈 actualizamos respaldo
       } else {
         Swal.fire("Error", data.error || "No se pudo actualizar el perfil", "error");
       }
@@ -149,6 +152,14 @@ export default function PerfilUsuario() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // ❌ Cancelar cambios → restaurar perfil original
+  const handleCancel = () => {
+    if (backupUser) {
+      setUser(JSON.parse(JSON.stringify(backupUser))); // 👈 restaura valores previos
+    }
+    setEditMode(false);
   };
 
   // 🧭 Estados de carga
@@ -226,28 +237,27 @@ export default function PerfilUsuario() {
             </div>
 
             <div className="mt-6 flex flex-col gap-2">
-            <button
+              <button
                 onClick={() => setEditMode(true)}
                 className="bg-[#2E5430] text-white py-2 rounded-md font-medium hover:bg-[#234624]"
-            >
+              >
                 Editar Perfil
-            </button>
+              </button>
 
-            <button
+              <button
                 onClick={() => router.push("/change-password")}
                 className="border border-[#2E5430] text-[#2E5430] py-2 rounded-md font-medium hover:bg-[#2E5430] hover:text-white transition-colors"
-            >
+              >
                 Cambiar Contraseña
-            </button>
+              </button>
             </div>
-
           </>
         ) : (
           <>
             <h1 className="text-2xl font-bold text-center text-[#2E5430] mb-6">
               Editar Perfil
             </h1>
-            
+
             {/* Campos personales */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -359,7 +369,7 @@ export default function PerfilUsuario() {
 
             <div className="flex justify-between gap-3 mt-6">
               <button
-                onClick={() => setEditMode(false)}
+                onClick={handleCancel}
                 className="border border-[#2E5430] text-[#2E5430] py-2 px-4 rounded-md font-medium hover:bg-[#2E5430] hover:text-white"
               >
                 Cancelar
