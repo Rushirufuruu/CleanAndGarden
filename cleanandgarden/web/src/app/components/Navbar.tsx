@@ -172,11 +172,11 @@ export default function Navbar() {
                 >
                   <li>
                     <Link
-                      href="/admin/registro-jardinero"
+                      href="/admin/gestion-usuarios"
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <UserPlus size={18} /> Registrar Jardinero
+                      <UserPlus size={18} /> Gestión de Usuarios
                     </Link>
                   </li>
                   <li>
