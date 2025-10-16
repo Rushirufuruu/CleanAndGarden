@@ -1153,8 +1153,130 @@ app.get("/admin/confirmar-jardinero/:token", async (req, res) => {
   }
 });
 
-//-----------------------------------------------------------------------------------------------
 
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// =======================================
+// 🧑‍💼 PANEL ADMIN — Gestión de usuarios y roles
+// =======================================
+
+// Middleware: solo Admin puede acceder
+async function verifyAdmin(req: Request, res: Response, next: any) {
+  try {
+    const token = req.cookies?.token;
+    if (!token) return res.status(401).json({ error: "No autorizado (sin token)" });
+
+    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+    const user = await prisma.usuario.findUnique({
+      where: { id: BigInt(decoded.id) },
+      include: { rol: true },
+    });
+
+    if (!user || user.rol.codigo !== "admin") {
+      return res.status(403).json({ error: "Solo los administradores pueden acceder" });
+    }
+
+    (req as any).user = user;
+    next();
+  } catch (err) {
+    console.error("Error en verifyAdmin:", err);
+    return res.status(403).json({ error: "Acceso denegado" });
+  }
+}
+
+// =======================================
+// PANEL ADMIN — Listar usuarios 
+// =======================================
+app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        activo: true,
+        rol: {
+          select: {
+            id: true,
+            codigo: true,
+            nombre: true,
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    // Asegurar que BigInt no rompa JSON
+    const usuariosSafe = JSON.parse(
+      JSON.stringify(usuarios, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json(usuariosSafe);
+  } catch (err: any) {
+    console.error("❌ Error al listar usuarios:", err.message);
+    res.status(500).json({ error: "Error al listar usuarios" });
+  }
+});
+
+
+// ✅ Cambiar rol
+app.put("/admin/usuarios/:id/rol", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nuevoRol } = req.body;
+
+    const rol = await prisma.rol.findUnique({ where: { codigo: nuevoRol } });
+    if (!rol) {
+      return res.status(400).json({ error: "Rol no válido" });
+    }
+
+    await prisma.usuario.update({
+      where: { id: BigInt(id) },
+      data: { rol: { connect: { id: rol.id } } },
+    });
+
+    res.json({ message: "Rol actualizado correctamente ✅" });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar rol:", err.message);
+    res.status(500).json({ error: "Error al actualizar rol" });
+  }
+});
+
+
+// ✅ Activar / desactivar usuario
+app.put("/admin/usuarios/:id/estado", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activo } = req.body;
+
+    await prisma.usuario.update({
+      where: { id: BigInt(id) },
+      data: { activo },
+    });
+
+    res.json({ message: `Usuario ${activo ? "activado" : "desactivado"} correctamente ✅` });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar estado:", err.message);
+    res.status(500).json({ error: "Error al actualizar estado" });
+  }
+});
+
+
+// ✅ Eliminar usuario
+app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.usuario.delete({ where: { id: BigInt(id) } });
+    res.json({ message: "Usuario eliminado correctamente 🗑️" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar usuario:", err.message);
+    res.status(500).json({ error: "Error al eliminar usuario" });
+  }
+});
+
+
+// =======================================
 
 
 
