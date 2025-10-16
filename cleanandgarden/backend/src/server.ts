@@ -1157,7 +1157,7 @@ app.get("/admin/confirmar-jardinero/:token", async (req, res) => {
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // =======================================
-// 🧑‍💼 PANEL ADMIN — Gestión de usuarios y roles
+// 🧑‍💼 PANEL ADMIN — Gestión de usuarios 
 // =======================================
 
 // Middleware: solo Admin puede acceder
@@ -1184,9 +1184,7 @@ async function verifyAdmin(req: Request, res: Response, next: any) {
   }
 }
 
-// =======================================
-// PANEL ADMIN — Listar usuarios 
-// =======================================
+//✅ listar usuario
 app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -1195,6 +1193,7 @@ app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
         nombre: true,
         apellido: true,
         email: true,
+        telefono: true,
         activo: true,
         rol: {
           select: {
@@ -1219,29 +1218,6 @@ app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
   }
 });
 
-
-// ✅ Cambiar rol
-app.put("/admin/usuarios/:id/rol", verifyAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { nuevoRol } = req.body;
-
-    const rol = await prisma.rol.findUnique({ where: { codigo: nuevoRol } });
-    if (!rol) {
-      return res.status(400).json({ error: "Rol no válido" });
-    }
-
-    await prisma.usuario.update({
-      where: { id: BigInt(id) },
-      data: { rol: { connect: { id: rol.id } } },
-    });
-
-    res.json({ message: "Rol actualizado correctamente ✅" });
-  } catch (err: any) {
-    console.error("❌ Error al actualizar rol:", err.message);
-    res.status(500).json({ error: "Error al actualizar rol" });
-  }
-});
 
 
 // ✅ Activar / desactivar usuario
@@ -1272,6 +1248,229 @@ app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
   } catch (err: any) {
     console.error("❌ Error al eliminar usuario:", err.message);
     res.status(500).json({ error: "Error al eliminar usuario" });
+  }
+});
+//---------------------------funcionalidades nuevas del panel admin--------------------------------
+// ✅ Editar usuario (con validaciones completas)
+app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, apellido, email, telefono, rolCodigo } = req.body;
+
+    // 🧩 Validar que quien edita sea admin
+    const admin = (req as any).user;
+    if (!admin || admin.rol?.codigo !== "admin") {
+      return res.status(403).json({ error: "No autorizado: solo administradores." });
+    }
+
+    // 🧩 Validaciones de campos obligatorios
+    if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
+    if (!telefono?.trim())
+      return res.status(400).json({ error: "El teléfono es obligatorio (+569XXXXXXXX)." });
+
+    // 🧩 Validar formato de teléfono chileno
+    if (!telefono.match(/^\+569\d{8}$/)) {
+      return res.status(400).json({
+        error: "El teléfono debe tener formato válido: +569XXXXXXXX",
+      });
+    }
+
+    // 🧩 Validar formato de correo
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Correo electrónico no válido." });
+    }
+
+    // 🧩 Verificar que el usuario exista
+    const user = await prisma.usuario.findUnique({ where: { id: BigInt(id) } });
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado." });
+
+    // 🧩 Verificar duplicado de email (si cambió)
+    if (email !== user.email) {
+      const existing = await prisma.usuario.findUnique({ where: { email } });
+      if (existing)
+        return res.status(409).json({ error: "El correo electrónico ya está registrado." });
+    }
+
+    // 🧩 Validar que tenga rol válido
+    if (!rolCodigo?.trim()) {
+      return res.status(400).json({ error: "Debe seleccionar un rol para el usuario." });
+    }
+
+    const rol = await prisma.rol.findUnique({ where: { codigo: rolCodigo } });
+    if (!rol) {
+      return res.status(400).json({ error: `El rol '${rolCodigo}' no existe en el sistema.` });
+    }
+
+    // 🧩 Actualizar usuario
+    const usuarioActualizado = await prisma.usuario.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre,
+        apellido,
+        email,
+        telefono,
+        rol: { connect: { id: rol.id } },
+        fecha_actualizacion: new Date(),
+      },
+      include: { rol: true },
+    });
+
+    const safeUser = JSON.parse(
+      JSON.stringify(usuarioActualizado, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({
+      message: "✅ Usuario actualizado correctamente.",
+      usuario: safeUser,
+    });
+  } catch (err: any) {
+    console.error("❌ Error al editar usuario:", err.message);
+    res.status(500).json({ error: "Error al editar usuario." });
+  }
+});
+
+// =======================================
+
+// =======================================
+// 🔐 PANEL ADMIN — Gestión de Roles
+// =======================================
+
+// ✅ Crear nuevo rol
+app.post("/admin/roles", verifyAdmin, async (req, res) => {
+  try {
+    const { codigo, nombre } = req.body;
+
+    // Validaciones
+    if (!codigo?.trim() || !nombre?.trim()) {
+      return res.status(400).json({ error: "Debe ingresar código y nombre del rol." });
+    }
+
+    // Verificar duplicado
+    const existe = await prisma.rol.findUnique({ where: { codigo } });
+    if (existe) {
+      return res.status(400).json({ error: "Ese código de rol ya existe." });
+    }
+
+    // Crear rol
+    const nuevoRol = await prisma.rol.create({
+      data: { codigo: codigo.trim(), nombre: nombre.trim() },
+    });
+
+    // Evitar BigInt en JSON
+    const safeRol = JSON.parse(
+      JSON.stringify(nuevoRol, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({ message: "✅ Rol creado correctamente", rol: safeRol });
+  } catch (err: any) {
+    console.error("❌ Error al crear rol:", err.message);
+    res.status(500).json({ error: "Error al crear rol." });
+  }
+});
+
+// ✅ Listar roles con cantidad de usuarios asociados
+app.get("/admin/roles", verifyAdmin, async (_req, res) => {
+  try {
+    const roles = await prisma.rol.findMany({
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        _count: { select: { usuario: true } },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    const safeRoles = JSON.parse(
+      JSON.stringify(roles, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json(safeRoles);
+  } catch (err: any) {
+    console.error("❌ Error al listar roles:", err.message);
+    res.status(500).json({ error: "Error al listar roles." });
+  }
+});
+
+// ✅ Eliminar rol
+app.delete("/admin/roles/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Buscar el rol
+    const rol = await prisma.rol.findUnique({ where: { id: BigInt(id) } });
+    if (!rol) {
+      return res.status(404).json({ error: "Rol no encontrado." });
+    }
+
+    // Evitar eliminar el rol admin
+    if (rol.codigo === "admin") {
+      return res.status(400).json({ error: "No se puede eliminar el rol administrador." });
+    }
+
+    // Verificar si hay usuarios asignados
+    const usuariosAsociados = await prisma.usuario.findMany({
+      where: { rol_id: BigInt(id) },
+      select: { id: true },
+    });
+
+    if (usuariosAsociados.length > 0) {
+      return res.status(400).json({
+        error: "No se puede eliminar el rol porque está asignado a uno o más usuarios.",
+      });
+    }
+
+    // Eliminar rol
+    await prisma.rol.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "✅ Rol eliminado correctamente." });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar rol:", err.message);
+    res.status(500).json({ error: "Error al eliminar rol." });
+  }
+});
+
+// ✅ Actualizar rol
+app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { codigo, nombre } = req.body;
+
+    if (!codigo?.trim() || !nombre?.trim()) {
+      return res.status(400).json({ error: "Debe ingresar código y nombre del rol." });
+    }
+
+    const rol = await prisma.rol.findUnique({ where: { id: BigInt(id) } });
+    if (!rol) return res.status(404).json({ error: "Rol no encontrado." });
+
+    if (rol.codigo === "admin" && codigo !== "admin") {
+      return res.status(400).json({ error: "No se puede modificar el código del rol administrador." });
+    }
+
+    // Verificar si el nuevo código ya existe en otro rol
+    const duplicado = await prisma.rol.findFirst({
+      where: { codigo, NOT: { id: BigInt(id) } },
+    });
+    if (duplicado) {
+      return res.status(400).json({ error: "Ya existe otro rol con ese código." });
+    }
+
+    const rolActualizado = await prisma.rol.update({
+      where: { id: BigInt(id) },
+      data: { codigo: codigo.trim(), nombre: nombre.trim() },
+    });
+
+    const safeRol = JSON.parse(
+      JSON.stringify(rolActualizado, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({ message: "✅ Rol actualizado correctamente", rol: safeRol });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar rol:", err.message);
+    res.status(500).json({ error: "Error al actualizar rol." });
   }
 });
 

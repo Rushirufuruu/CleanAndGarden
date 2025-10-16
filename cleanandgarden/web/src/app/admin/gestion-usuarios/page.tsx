@@ -2,22 +2,45 @@
 
 import { useEffect, useState } from "react";
 import Swal from "sweetalert2";
-import { Search, UserPlus, Trash2, ShieldCheck } from "lucide-react";
+import { Search, UserPlus, Trash2, ShieldCheck, Edit3 } from "lucide-react";
+
+interface Rol {
+  id: number;
+  codigo: string;
+  nombre: string;
+}
 
 interface Usuario {
   id: number;
   nombre: string;
   apellido: string;
   email: string;
+  telefono?: string;
   activo: boolean;
-  rol: { codigo: string; nombre: string };
+  rol: Rol;
 }
 
 export default function AdminUsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [roles, setRoles] = useState<Rol[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
+  // Modal
+  const [showModal, setShowModal] = useState(false);
+  const [usuarioEdit, setUsuarioEdit] = useState<Usuario | null>(null);
+  const [editForm, setEditForm] = useState({
+    nombre: "",
+    apellido: "",
+    email: "",
+    telefono: "",
+    rolCodigo: "",
+  });
+
+  // Errores de validación
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Cargar datos
   const fetchUsuarios = async () => {
     try {
       const res = await fetch("http://localhost:3001/admin/usuarios", {
@@ -33,23 +56,24 @@ export default function AdminUsuariosPage() {
     }
   };
 
-  useEffect(() => {
-    fetchUsuarios();
-  }, []);
-
-  const cambiarRol = async (id: number, nuevoRol: string) => {
-    const res = await fetch(`http://localhost:3001/admin/usuarios/${id}/rol`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ nuevoRol }),
-    });
-    if (res.ok) {
-      Swal.fire("✅ Rol actualizado", "", "success");
-      fetchUsuarios();
-    } else Swal.fire("Error", "No se pudo cambiar el rol", "error");
+  const fetchRoles = async () => {
+    try {
+      const res = await fetch("http://localhost:3001/admin/roles", {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setRoles(data);
+    } catch {
+      console.error("Error al cargar roles");
+    }
   };
 
+  useEffect(() => {
+    fetchUsuarios();
+    fetchRoles();
+  }, []);
+
+  // Cambiar estado
   const cambiarEstado = async (id: number, activo: boolean) => {
     const res = await fetch(`http://localhost:3001/admin/usuarios/${id}/estado`, {
       method: "PUT",
@@ -63,6 +87,7 @@ export default function AdminUsuariosPage() {
     } else Swal.fire("Error", "No se pudo cambiar el estado", "error");
   };
 
+  // Eliminar usuario
   const eliminarUsuario = async (id: number) => {
     const confirm = await Swal.fire({
       title: "¿Eliminar usuario?",
@@ -86,6 +111,67 @@ export default function AdminUsuariosPage() {
       fetchUsuarios();
     } else {
       Swal.fire("Error", "No se pudo eliminar el usuario", "error");
+    }
+  };
+
+  // Abrir modal
+  const abrirModal = (usuario: Usuario) => {
+    setUsuarioEdit(usuario);
+    setEditForm({
+      nombre: usuario.nombre,
+      apellido: usuario.apellido || "",
+      email: usuario.email,
+      telefono: usuario.telefono || "",
+      rolCodigo: usuario.rol?.codigo || "",
+    });
+    setErrors({});
+    setShowModal(true);
+  };
+
+  // ✅ Validar antes de guardar
+  const validarFormulario = () => {
+    const newErrors: Record<string, string> = {};
+    const { nombre, apellido, email, telefono, rolCodigo } = editForm;
+
+    if (!nombre.trim()) newErrors.nombre = "El nombre es obligatorio.";
+    if (!apellido.trim()) newErrors.apellido = "El apellido es obligatorio.";
+    if (!email.trim()) newErrors.email = "El correo es obligatorio.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      newErrors.email = "Formato de correo no válido.";
+
+    if (!telefono.trim()) newErrors.telefono = "El teléfono es obligatorio.";
+    else if (!/^\+569\d{8}$/.test(telefono))
+      newErrors.telefono = "Debe tener formato +569XXXXXXXX.";
+
+    if (!rolCodigo) newErrors.rolCodigo = "Debe seleccionar un rol.";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Guardar cambios
+  const guardarCambios = async () => {
+    if (!usuarioEdit) return;
+    if (!validarFormulario()) return; // 🚫 No sigue si hay errores
+
+    try {
+      const res = await fetch(`http://localhost:3001/admin/usuarios/${usuarioEdit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(editForm),
+      });
+
+      if (res.ok) {
+        Swal.fire("✅ Usuario actualizado", "", "success");
+        setShowModal(false);
+        fetchUsuarios();
+      } else {
+        const data = await res.json();
+        Swal.fire("Error", data.error || "No se pudo editar el usuario", "error");
+      }
+    } catch {
+      Swal.fire("Error", "Error al editar el usuario", "error");
     }
   };
 
@@ -138,24 +224,11 @@ export default function AdminUsuariosPage() {
               <tbody>
                 {usuariosFiltrados.length > 0 ? (
                   usuariosFiltrados.map((u) => (
-                    <tr
-                      key={u.id}
-                      className="hover:bg-[#FAFAF8] transition-all border-b border-[#DCE5D7]"
-                    >
+                    <tr key={u.id} className="hover:bg-[#FAFAF8] border-b border-[#DCE5D7]">
                       <td className="py-3 px-5 font-semibold text-gray-700">{u.id}</td>
                       <td className="py-3 px-5">{u.nombre} {u.apellido}</td>
                       <td className="py-3 px-5 text-gray-700">{u.email}</td>
-                      <td className="py-3 px-5">
-                        <select
-                          value={u.rol?.codigo}
-                          onChange={(e) => cambiarRol(u.id, e.target.value)}
-                          className="select select-sm select-bordered border-gray-300 rounded-md"
-                        >
-                          <option value="cliente">Cliente</option>
-                          <option value="jardinero">Jardinero</option>
-                          <option value="admin">Administrador</option>
-                        </select>
-                      </td>
+                      <td className="py-3 px-5">{u.rol?.nombre}</td>
                       <td className="py-3 px-5">
                         <button
                           onClick={() => cambiarEstado(u.id, !u.activo)}
@@ -168,7 +241,13 @@ export default function AdminUsuariosPage() {
                           {u.activo ? "Activo" : "Inactivo"}
                         </button>
                       </td>
-                      <td className="py-3 px-5 text-center">
+                      <td className="py-3 px-5 text-center flex gap-2 justify-center">
+                        <button
+                          onClick={() => abrirModal(u)}
+                          className="btn btn-sm bg-[#4C7043] hover:bg-[#3E5C3A] text-white rounded-full"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => eliminarUsuario(u.id)}
                           className="btn btn-sm bg-[#6E6E6E] hover:bg-[#555] text-white rounded-full"
@@ -180,10 +259,7 @@ export default function AdminUsuariosPage() {
                   ))
                 ) : (
                   <tr>
-                    <td
-                      colSpan={6}
-                      className="text-center text-gray-500 py-6 italic text-[15px]"
-                    >
+                    <td colSpan={6} className="text-center text-gray-500 py-6 italic text-[15px]">
                       No se encontraron usuarios
                     </td>
                   </tr>
@@ -193,6 +269,94 @@ export default function AdminUsuariosPage() {
           </div>
         )}
       </div>
+
+      {/* 🔹 Modal Editar Usuario */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 border border-[#E5E5E5]">
+            <h2 className="text-2xl font-bold text-[#3E5C3A] mb-4">Editar Usuario</h2>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Nombre"
+                  className="input input-bordered border-[#DADADA] w-full"
+                  value={editForm.nombre}
+                  onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+                />
+                {errors.nombre && <p className="text-red-600 text-xs mt-1">{errors.nombre}</p>}
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  placeholder="Apellido"
+                  className="input input-bordered border-[#DADADA] w-full"
+                  value={editForm.apellido}
+                  onChange={(e) => setEditForm({ ...editForm, apellido: e.target.value })}
+                />
+                {errors.apellido && <p className="text-red-600 text-xs mt-1">{errors.apellido}</p>}
+              </div>
+
+              <div className="col-span-2">
+                <input
+                  type="email"
+                  placeholder="Email"
+                  className="input input-bordered border-[#DADADA] w-full"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+                {errors.email && <p className="text-red-600 text-xs mt-1">{errors.email}</p>}
+              </div>
+
+              <div className="col-span-2">
+                <input
+                  type="text"
+                  placeholder="Teléfono"
+                  className="input input-bordered border-[#DADADA] w-full"
+                  value={editForm.telefono}
+                  onChange={(e) => setEditForm({ ...editForm, telefono: e.target.value })}
+                />
+                {errors.telefono && <p className="text-red-600 text-xs mt-1">{errors.telefono}</p>}
+              </div>
+
+              <div className="col-span-2">
+                <select
+                  className="select select-bordered border-[#DADADA] w-full"
+                  value={editForm.rolCodigo}
+                  onChange={(e) => setEditForm({ ...editForm, rolCodigo: e.target.value })}
+                >
+                  <option value="">Seleccionar rol</option>
+                  {roles.map((rol) => (
+                    <option key={rol.codigo} value={rol.codigo}>
+                      {rol.nombre}
+                    </option>
+                  ))}
+                </select>
+                {errors.rolCodigo && (
+                  <p className="text-red-600 text-xs mt-1">{errors.rolCodigo}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="btn bg-gray-400 text-white hover:bg-gray-500 rounded-lg"
+                onClick={() => setShowModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn bg-[#4C7043] text-white hover:bg-[#3E5C3A] rounded-lg"
+                onClick={guardarCambios}
+              >
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

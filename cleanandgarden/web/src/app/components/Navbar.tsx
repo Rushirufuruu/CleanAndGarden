@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
-import { Settings, UserPlus, BarChart3 } from "lucide-react"; // 👈 nuevos íconos para admin
+import { Settings, UserPlus, BarChart3,ShieldCheck } from "lucide-react"; // 👈 nuevos íconos para admin
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -177,6 +177,15 @@ export default function Navbar() {
                       onClick={() => setShowAdminMenu(false)}
                     >
                       <UserPlus size={18} /> Gestión de Usuarios
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/gestion-roles"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <ShieldCheck size={18} /> Gestión de Roles
                     </Link>
                   </li>
                   <li>
