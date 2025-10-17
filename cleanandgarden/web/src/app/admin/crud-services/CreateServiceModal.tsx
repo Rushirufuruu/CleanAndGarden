@@ -73,7 +73,7 @@ export default function CreateServiceModal({
       if (form.imagen) {
         try {
           imagenUrl = await uploadImageToSupabase(form.imagen);
-        } catch (imgError) {
+        } catch {
           throw new Error("Error al subir la imagen");
         }
       }
@@ -110,9 +110,10 @@ export default function CreateServiceModal({
 
       onServiceCreated();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error al crear servicio:", err);
-      setError(err.message || "Error al crear el servicio");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setError((err as any).message || "Error al crear el servicio");
     } finally {
       setIsSubmitting(false);
     }

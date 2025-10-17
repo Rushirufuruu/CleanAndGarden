@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import CreateServiceModal from "./CreateServiceModal";
 
 interface Servicio {
@@ -34,9 +35,10 @@ export default function ServicesAdminPage() {
       
       const data = await response.json();
       setServicios(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error al cargar servicios:', err);
-      setError(err.message || 'Error al conectar con el servidor');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setError((err as any).message || 'Error al conectar con el servidor');
     } finally {
       setIsLoading(false);
     }
@@ -160,9 +162,11 @@ export default function ServicesAdminPage() {
                       >
                         <td className="py-3 px-4">
                           {servicio.imagenUrl ? (
-                            <img 
+                            <Image 
                               src={servicio.imagenUrl} 
                               alt={servicio.nombre}
+                              width={48}
+                              height={48}
                               className="w-12 h-12 object-cover rounded-lg"
                             />
                           ) : (
