@@ -38,49 +38,44 @@ export default function LoginPage() {
 
       const data = await res.json();
 
-      if (res.ok && data.user) {
-        // Guardar datos de sesión
+      // ❌ Si hubo error
+      if (!res.ok) {
+        setError(`❌ ${data.error || "Credenciales inválidas"}`);
+        setLoading(false);
+        return;
+      }
+
+      // ✅ Guardar sesión local
+      if (data.user) {
+        const fullName = data.user.nombre?.trim() || data.user.email; // ← evita nulos
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("userId", data.user.id);
         localStorage.setItem("userRole", data.user.rol);
-        localStorage.setItem("userName", data.user.nombre);
-
-        // ⚠️ Si el jardinero no tiene teléfono, redirigir al perfil
-        if (data.warning && data.redirectTo) {
-          await Swal.fire({
-            icon: "warning",
-            title: "Información requerida",
-            text: data.warning,
-            confirmButtonColor: "#2E5430",
-          });
-          router.push(data.redirectTo);
-          return;
-        }
-
-        // ✅ Si todo está bien
-        setSuccess("✅ Login exitoso, redirigiendo...");
+        localStorage.setItem("userName", fullName);
         window.dispatchEvent(new CustomEvent("session-change", { detail: "login" }));
+      }
 
-        // 🔄 Redirección según rol
+      // ⚠️ Perfil incompleto → redirigir
+      if (data.warning && data.redirectTo === "profile") {
+        await Swal.fire({
+          icon: "warning",
+          title: "Perfil incompleto",
+          text: data.warning,
+          confirmButtonText: "Completar perfil",
+          confirmButtonColor: "#2E5430",
+          allowOutsideClick: false,
+        });
+        sessionStorage.setItem("cameFromIncompleteProfile", "true");
+        router.push("/profile");
+        return;
+      }
+
+      // ✅ Login exitoso normal
+      if (data.user) {
+        setSuccess("✅ Login exitoso, redirigiendo...");
         setTimeout(() => {
-          switch (data.user.rol) {
-            case "jardinero":
-              // 👇 Si tiene teléfono registrado, va al inicio
-              if (data.user.telefono && data.user.telefono.trim() !== "") {
-                router.push("/");
-              } else {
-                router.push("/profile");
-              }
-              break;
-            case "admin":
-            case "cliente":
-            default:
-              router.push("/");
-              break;
-          }
+          router.push("/");
         }, 1000);
-      } else {
-        setError(`❌ ${data.error || "Credenciales inválidas"}`);
       }
     } catch (err) {
       console.error("Error al conectar con backend:", err);

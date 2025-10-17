@@ -599,40 +599,43 @@ app.get("/confirm-email/:token", async (req, res) => {
 
 //----------------------------------------------------------------------------------
 
+
 // =======================================
-// 🔐 LOGIN (devuelve rol del usuario)
-// =======================================
-// =======================================
-// 🔐 LOGIN (valida teléfono si es jardinero)
-// =======================================
-// =======================================
-// 🔐 LOGIN (devuelve rol y teléfono del usuario)
+// 🔐 LOGIN (maneja perfil incompleto y mantiene sesión activa)
 // =======================================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
 
-    // Buscar usuario por email
+    // Buscar usuario
     const usuario = await prisma.usuario.findUnique({
       where: { email },
-      include: { rol: { select: { codigo: true, nombre: true } } },
+      include: {
+        rol: { select: { codigo: true, nombre: true } },
+        direccion: {
+          include: { comuna: { include: { region: true } } },
+        },
+      },
     });
 
-    if (!usuario)
+    if (!usuario) {
       return res.status(404).json({ error: "Usuario no encontrado" });
+    }
 
     // Comparar contraseña
     const passwordMatch = await bcrypt.compare(password, usuario.contrasena_hash);
-    if (!passwordMatch)
+    if (!passwordMatch) {
       return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
 
     // Verificar activación
-    if (!usuario.activo)
+    if (!usuario.activo) {
       return res.status(403).json({
         error: "Debes confirmar tu cuenta antes de iniciar sesión.",
       });
+    }
 
-    // ✅ Generar token JWT con datos mínimos
+    // ✅ Generar token JWT
     const token = generateToken({
       id: Number(usuario.id),
       nombre: usuario.nombre,
@@ -640,30 +643,37 @@ app.post("/login", async (req, res) => {
       rol: usuario.rol.codigo,
     });
 
-    // ✅ Enviar cookie segura
+    // Guardar cookie con el token
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false, // cambia a true si usas HTTPS
+      secure: false, // cambia a true en producción
       sameSite: "lax",
       maxAge: 60 * 60 * 1000, // 1 hora
     });
 
-    // 🚨 Si es jardinero sin teléfono -> advertencia especial
-    if (usuario.rol.codigo === "jardinero" && (!usuario.telefono || usuario.telefono.trim() === "")) {
+    // Detectar si faltan datos obligatorios
+    const faltanDatos =
+      !usuario.nombre?.trim() ||
+      !usuario.apellido?.trim() ||
+      !usuario.telefono?.trim() ||
+      usuario.direccion.length === 0;
+
+    // ⚠️ Si fue creado por admin o tiene datos incompletos → redirigir a /profile
+    if (faltanDatos) {
       return res.status(200).json({
-        warning: "Debes ingresar tu número de teléfono para completar tu cuenta.",
+        warning:
+          "Tu perfil está incompleto. Por favor, completa tu teléfono y dirección antes de continuar.",
         redirectTo: "profile",
         user: {
           id: Number(usuario.id),
           nombre: usuario.nombre,
           email: usuario.email,
           rol: usuario.rol.codigo,
-          telefono: usuario.telefono || null,
         },
       });
     }
 
-    // ✅ Respuesta general (admin, cliente, jardinero con teléfono)
+    // ✅ Login normal
     res.status(200).json({
       message: "✅ Login exitoso",
       user: {
@@ -671,7 +681,7 @@ app.post("/login", async (req, res) => {
         nombre: usuario.nombre,
         email: usuario.email,
         rol: usuario.rol.codigo,
-        telefono: usuario.telefono || null, // 👈 agregado para frontend
+        telefono: usuario.telefono || null,
       },
     });
   } catch (e) {
@@ -679,6 +689,8 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });
+
+
 
 
 //------------------------------------------------------------------------------------------
@@ -913,6 +925,9 @@ app.put("/profile", authMiddleware, async (req, res) => {
     const userData = (req as any).user;
     const { nombre, apellido, telefono, direcciones } = req.body;
 
+    // ===============================
+    // 🔎 1️⃣ Buscar usuario
+    // ===============================
     const usuario = await prisma.usuario.findUnique({
       where: { id: BigInt(userData.id) },
       include: { rol: true },
@@ -920,238 +935,168 @@ app.put("/profile", authMiddleware, async (req, res) => {
 
     if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
 
-    // 🧩 Si es jardinero, validar que el teléfono sea obligatorio
-    if (usuario.rol.codigo === "jardinero") {
-      if (!telefono || !telefono.match(/^\+569\d{8}$/)) {
+    // ===============================
+    // 🧩 2️⃣ Validaciones básicas
+    // ===============================
+    if (!nombre?.trim())
+      return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim())
+      return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!telefono?.trim())
+      return res.status(400).json({ error: "El teléfono es obligatorio." });
+
+    if (!/^\+569\d{8}$/.test(telefono)) {
+      return res
+        .status(400)
+        .json({ error: "El número de teléfono debe tener formato válido (+569XXXXXXXX)." });
+    }
+
+    if (!Array.isArray(direcciones) || direcciones.length === 0) {
+      return res.status(400).json({
+        error: "Debes ingresar al menos una dirección con calle, región y comuna.",
+      });
+    }
+
+    // ===============================
+    // 🏠 3️⃣ Validar direcciones
+    // ===============================
+    const combinaciones = new Set<string>();
+
+    for (const [i, dir] of direcciones.entries()) {
+      if (dir._delete) continue; // omitimos las eliminadas
+
+      const calle = dir.calle?.trim();
+      const region = dir.region?.trim();
+      const comunaNombre = dir.comuna?.trim();
+
+      if (!calle || !region || !comunaNombre) {
         return res.status(400).json({
-          error: "Los jardineros deben ingresar un teléfono válido (+569XXXXXXXX).",
+          error: `La dirección #${i + 1} está incompleta. Debe incluir calle, región y comuna.`,
+        });
+      }
+
+      // --- Validar que la comuna exista ---
+      const comuna = await prisma.comuna.findFirst({
+        where: {
+          nombre: { equals: comunaNombre, mode: "insensitive" },
+          region: { nombre: { equals: region, mode: "insensitive" } },
+        },
+        include: { region: true },
+      });
+
+      if (!comuna) {
+        return res.status(400).json({
+          error: `La comuna '${comunaNombre}' no existe o no pertenece a la región '${region}'.`,
+        });
+      }
+
+      // --- Validar duplicidad dentro del mismo formulario ---
+      const clave = `${calle.toLowerCase()}-${comunaNombre.toLowerCase()}`;
+      if (combinaciones.has(clave)) {
+        return res.status(400).json({
+          error: `La dirección "${calle}, ${comunaNombre}" está duplicada en el formulario.`,
+        });
+      }
+      combinaciones.add(clave);
+
+      // --- Validar duplicidad con direcciones existentes en BD ---
+      const existente = await prisma.direccion.findFirst({
+        where: {
+          usuario_id: BigInt(userData.id),
+          calle: { equals: calle, mode: "insensitive" },
+          comuna: { nombre: { equals: comunaNombre, mode: "insensitive" } },
+        },
+        include: { comuna: true },
+      });
+
+      if (existente && (!dir.id || existente.id !== BigInt(dir.id))) {
+        return res.status(400).json({
+          error: `Ya tienes registrada una dirección igual: "${calle}, ${comunaNombre}".`,
         });
       }
     }
 
-    // ✅ Actualizar datos básicos
+    // ===============================
+    // ✏️ 4️⃣ Actualizar datos personales
+    // ===============================
     await prisma.usuario.update({
       where: { id: BigInt(userData.id) },
       data: { nombre, apellido, telefono },
     });
 
-    // ✅ Manejar direcciones
-    if (Array.isArray(direcciones)) {
-      for (const dir of direcciones) {
-        if (dir._delete && dir.id) {
-          await prisma.direccion.delete({ where: { id: BigInt(dir.id) } });
-          continue;
-        }
+    // ===============================
+    // 🧱 5️⃣ Eliminar / Crear / Actualizar direcciones
+    // ===============================
 
-        if (!dir.id) {
-          const comuna = await prisma.comuna.findFirst({
-            where: { nombre: dir.comuna },
-            include: { region: true },
-          });
-          if (!comuna) continue;
-
-          await prisma.direccion.create({
-            data: {
-              calle: dir.calle,
-              usuario_id: BigInt(userData.id),
-              comuna_id: comuna.id,
-            },
-          });
-        } else {
-          await prisma.direccion.update({
-            where: { id: BigInt(dir.id) },
-            data: { calle: dir.calle },
-          });
-        }
+    // 1️⃣ Eliminar primero las direcciones marcadas con _delete
+    for (const dir of direcciones) {
+      if (dir._delete && dir.id) {
+        await prisma.direccion.delete({
+          where: { id: BigInt(dir.id) },
+        });
       }
     }
 
-    res.json({ message: "Perfil actualizado correctamente ✅" });
+    // 2️⃣ Luego crear o actualizar las restantes
+    for (const dir of direcciones) {
+      if (dir._delete) continue;
+
+      const comuna = await prisma.comuna.findFirst({
+        where: {
+          nombre: { equals: dir.comuna, mode: "insensitive" },
+          region: { nombre: { equals: dir.region, mode: "insensitive" } },
+        },
+        include: { region: true },
+      });
+      if (!comuna) continue;
+
+      if (!dir.id) {
+        await prisma.direccion.create({
+          data: {
+            calle: dir.calle.trim(),
+            usuario_id: BigInt(userData.id),
+            comuna_id: comuna.id,
+          },
+        });
+      } else {
+        await prisma.direccion.update({
+          where: { id: BigInt(dir.id) },
+          data: {
+            calle: dir.calle.trim(),
+            comuna_id: comuna.id,
+          },
+        });
+      }
+    }
+
+    // ===============================
+    // 🔁 6️⃣ Devolver usuario actualizado
+    // ===============================
+    const usuarioActualizado = await prisma.usuario.findUnique({
+      where: { id: BigInt(userData.id) },
+      include: {
+        rol: true,
+        direccion: {
+          include: { comuna: { include: { region: true } } },
+        },
+      },
+    });
+
+    res.json({
+      message: "Perfil actualizado correctamente ✅",
+      user: JSON.parse(
+        JSON.stringify(usuarioActualizado, (_, v) =>
+          typeof v === "bigint" ? v.toString() : v
+        )
+      ),
+    });
   } catch (err) {
     console.error("Error en PUT /profile:", err);
     res.status(500).json({ error: "Error al actualizar perfil" });
   }
 });
 
-// =======================================
-// 👨‍🌾 Crear cuenta de Jardinero (solo ADMIN)
-// =======================================
-app.post("/admin/registro-jardinero", authMiddleware, async (req, res) => {
-  try {
-    const userData = (req as any).user;
-    const { nombre, apellido, email } = req.body ?? {};
 
-    // 🔐 Verificar que sea admin
-    const admin = await prisma.usuario.findUnique({
-      where: { id: BigInt(userData.id) },
-      include: { rol: true },
-    });
-
-    if (!admin || admin.rol?.codigo !== "admin") {
-      return res.status(403).json({ error: "No autorizado: solo administradores." });
-    }
-
-    // 🧩 Validaciones
-    if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
-    if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
-    if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) return res.status(400).json({ error: "Correo electrónico no válido." });
-
-    // 🔎 Verificar duplicado
-    const existing = await prisma.usuario.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: "El correo ya está registrado." });
-
-    // 📋 Obtener rol jardinero
-    const rolJardinero = await prisma.rol.findUnique({ where: { codigo: "jardinero" } });
-    if (!rolJardinero)
-      return res.status(500).json({ error: "No existe el rol 'jardinero' en la base de datos." });
-
-    // 🧠 Generar contraseña automática
-    const base = email.substring(0, 3);
-    const password = `${base}1234`;
-    const contrasena_hash = await bcrypt.hash(password, 12);
-
-    // 🧱 Crear usuario inactivo
-    const jardinero = await prisma.usuario.create({
-      data: {
-        nombre,
-        apellido,
-        email,
-        contrasena_hash,
-        activo: false,
-        rol: { connect: { id: rolJardinero.id } },
-      },
-    });
-
-    // 🕒 Crear token de confirmación (expira en 15 minutos)
-    const token = crypto.randomBytes(32).toString("hex");
-    const expires = new Date(Date.now() + 15 * 60 * 1000);
-    await prisma.confirm_token.create({
-      data: { userId: jardinero.id, token, expiresAt: expires },
-    });
-
-    // ✉️ Enviar correo con enlace de confirmación
-    setImmediate(async () => {
-      try {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-          },
-        });
-
-        const confirmLink = `${process.env.FRONTEND_URL}/admin/confirmar-jardinero?token=${token}`;
-        const html = `
-          <div style="font-family: Arial, sans-serif; color:#333;">
-            <h2 style="color:#2E5430;">¡Bienvenido a Clean & Garden, ${nombre}!</h2>
-            <p>Tu cuenta de jardinero ha sido creada por el administrador.</p>
-            <p>Para activarla, haz clic en el siguiente botón:</p>
-            <p><a href="${confirmLink}" style="background:#2E5430;color:white;padding:10px 15px;border-radius:5px;text-decoration:none;">Confirmar Cuenta</a></p>
-            <p><b>Importante:</b> el enlace expirará en 15 minutos.</p>
-            <p>🌿 Una vez confirmes, recibirás tus credenciales para iniciar sesión.</p>
-            <br/>
-            <p>Si no reconoces este registro, puedes ignorar este correo.</p>
-          </div>
-        `;
-
-        await transporter.sendMail({
-          from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
-          to: email,
-          subject: "Confirma tu cuenta de Jardinero 🌿",
-          html,
-        });
-
-        console.log("📧 Correo de confirmación enviado a:", email);
-      } catch (err) {
-        console.error("⚠️ Error al enviar correo de confirmación:", err);
-      }
-    });
-
-    res.status(201).json({
-      message: "Jardinero creado. Se envió correo de confirmación.",
-    });
-  } catch (err: any) {
-    console.error("❌ Error al crear jardinero:", err);
-    res.status(500).json({ error: "Error al crear jardinero", details: err.message });
-  }
-});
-
-
-// =======================================
-// ✉️ Confirmar cuenta de jardinero
-// =======================================
-app.get("/admin/confirmar-jardinero/:token", async (req, res) => {
-  try {
-    const { token } = req.params;
-    const confirm = await prisma.confirm_token.findUnique({
-      where: { token },
-      include: { usuario: true },
-    });
-
-    if (!confirm)
-      return res.status(400).json({ error: "Token inválido o no encontrado." });
-
-    if (confirm.expiresAt < new Date()) {
-      await prisma.confirm_token.delete({ where: { id: confirm.id } });
-      return res.status(400).json({ error: "El token ha expirado." });
-    }
-
-    // ✅ Activar cuenta
-    const user = await prisma.usuario.update({
-      where: { id: confirm.userId },
-      data: { activo: true },
-    });
-
-    await prisma.confirm_token.delete({ where: { id: confirm.id } });
-
-    // ✉️ Enviar correo con credenciales
-    setImmediate(async () => {
-      try {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-          },
-        });
-
-        const html = `
-          <div style="font-family: Arial, sans-serif; color:#333;">
-            <h2 style="color:#2E5430;">¡Tu cuenta de Jardinero ya está activa, ${user.nombre}!</h2>
-            <p>Puedes iniciar sesión en <b>Clean & Garden</b> con las siguientes credenciales:</p>
-            <ul>
-              <li><b>Correo:</b> ${user.email}</li>
-              <li><b>Contraseña temporal:</b> ${user.email.substring(0,3)}1234</li>
-            </ul>
-            <p>🔐 Por seguridad, cambia tu contraseña la primera vez que inicies sesión.</p>
-            <p>📱 Además, agrega tu número de teléfono en <b>Mi Perfil</b> para completar tus datos.</p>
-            <br/>
-            <p>🌿 Gracias por unirte al equipo de <b>Clean & Garden</b>.</p>
-          </div>
-        `;
-
-        await transporter.sendMail({
-          from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
-          to: user.email,
-          subject: "Tu cuenta de Jardinero está activa ✅",
-          html,
-        });
-
-        console.log("📧 Correo de credenciales enviado a:", user.email);
-      } catch (err) {
-        console.error("⚠️ Error al enviar correo de credenciales:", err);
-      }
-    });
-
-    res.json({ message: "Cuenta confirmada y activada correctamente ✅" });
-  } catch (err: any) {
-    console.error("❌ Error al confirmar jardinero:", err);
-    res.status(500).json({ error: "Error interno del servidor." });
-  }
-});
 
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1250,7 +1195,8 @@ app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
     res.status(500).json({ error: "Error al eliminar usuario" });
   }
 });
-//---------------------------funcionalidades nuevas del panel admin--------------------------------
+
+
 // ✅ Editar usuario (con validaciones completas)
 app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
   try {
@@ -1476,7 +1422,166 @@ app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
 
 
 // =======================================
+// =======================================
+// 🧑‍💼 Crear cuenta de Usuario (Admin, Jardinero, Técnico, etc.)
+// =======================================
+app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { nombre, apellido, email, tipo } = req.body ?? {};
 
+    // 🔐 Solo admin puede crear
+    const admin = await prisma.usuario.findUnique({
+      where: { id: BigInt(userData.id) },
+      include: { rol: true },
+    });
+
+    if (!admin || admin.rol?.codigo !== "admin") {
+      return res.status(403).json({ error: "No autorizado: solo administradores." });
+    }
+
+    // 🧩 Validaciones
+    if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return res.status(400).json({ error: "Correo electrónico no válido." });
+
+    // 🔎 Verificar duplicado
+    const existing = await prisma.usuario.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: "El correo ya está registrado." });
+
+    // 🎯 Buscar rol dinámicamente
+    const rol = await prisma.rol.findUnique({ where: { codigo: tipo } });
+    if (!rol) {
+      return res.status(400).json({ error: `El rol '${tipo}' no existe en la base de datos.` });
+    }
+
+    const rolNombre = rol.nombre || rol.codigo;
+
+    // 🧠 Generar contraseña automática
+    const base = email.substring(0, 3);
+    const password = `${base}1234`;
+    const contrasena_hash = await bcrypt.hash(password, 12);
+
+    // 🧱 Crear usuario inactivo
+    const nuevoUsuario = await prisma.usuario.create({
+      data: {
+        nombre,
+        apellido,
+        email,
+        contrasena_hash,
+        activo: false,
+        rol: { connect: { id: rol.id } },
+      },
+    });
+
+    // 🕒 Crear token de confirmación
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+    await prisma.confirm_token.create({
+      data: { userId: nuevoUsuario.id, token, expiresAt: expires },
+    });
+
+    // ✉️ Enviar correo de confirmación
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    const confirmLink = `${process.env.FRONTEND_URL}/admin/confirmar-usuario?token=${token}`;
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color:#333;">
+        <h2 style="color:#2E5430;">¡Bienvenido a Clean & Garden, ${nombre}!</h2>
+        <p>Tu cuenta de <b>${rolNombre}</b> ha sido creada por el administrador.</p>
+        <p>Para activarla, haz clic en el siguiente botón:</p>
+        <p><a href="${confirmLink}" style="background:#2E5430;color:white;padding:10px 15px;border-radius:5px;text-decoration:none;">Confirmar Cuenta</a></p>
+        <p><b>Importante:</b> el enlace expirará en 15 minutos.</p>
+        <p>🌿 Una vez confirmes, recibirás tus credenciales para iniciar sesión.</p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `Confirma tu cuenta de ${rolNombre} 🌿`,
+      html,
+    });
+
+    res.status(201).json({
+      message: `${rolNombre} creado. Se envió correo de confirmación.`,
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear usuario:", err);
+    res.status(500).json({ error: "Error al crear usuario", details: err.message });
+  }
+});
+
+
+// =======================================
+// ✉️ Confirmar cuenta de usuario (Admin o Jardinero)
+// =======================================
+app.get("/admin/confirmar-usuario/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const confirm = await prisma.confirm_token.findUnique({
+      where: { token },
+      include: { usuario: { include: { rol: true } } },
+    });
+
+    if (!confirm) return res.status(400).json({ error: "Token inválido o no encontrado." });
+    if (confirm.expiresAt < new Date()) {
+      await prisma.confirm_token.delete({ where: { id: confirm.id } });
+      return res.status(400).json({ error: "El token ha expirado." });
+    }
+
+    const user = await prisma.usuario.update({
+      where: { id: confirm.userId },
+      data: { activo: true },
+      include: { rol: true },
+    });
+
+    await prisma.confirm_token.delete({ where: { id: confirm.id } });
+
+    // ✉️ Enviar correo con credenciales
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color:#333;">
+        <h2 style="color:#2E5430;">¡Tu cuenta ya está activa, ${user.nombre}!</h2>
+        <p>Puedes iniciar sesión con las siguientes credenciales:</p>
+        <ul>
+          <li><b>Correo:</b> ${user.email}</li>
+          <li><b>Contraseña temporal:</b> ${user.email.substring(0,3)}1234</li>
+        </ul>
+        <p>🔐 Cambia tu contraseña al iniciar sesión.</p>
+        ${
+          user.rol.codigo === "jardinero"
+            ? "<p>📱 Recuerda agregar tu teléfono en <b>Mi Perfil</b>.</p>"
+            : ""
+        }
+        <p>🌿 Bienvenido al equipo de Clean & Garden.</p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: `Tu cuenta de ${user.rol.nombre} está activa ✅`,
+      html,
+    });
+
+    res.json({ message: "Cuenta confirmada y activada correctamente ✅" });
+  } catch (err: any) {
+    console.error("❌ Error al confirmar usuario:", err);
+    res.status(500).json({ error: "Error interno del servidor." });
+  }
+});
 
 
 

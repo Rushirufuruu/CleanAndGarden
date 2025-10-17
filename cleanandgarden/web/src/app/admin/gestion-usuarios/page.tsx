@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { Search, UserPlus, Trash2, ShieldCheck, Edit3 } from "lucide-react";
 
@@ -21,6 +22,7 @@ interface Usuario {
 }
 
 export default function AdminUsuariosPage() {
+  const router = useRouter();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<Rol[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +42,7 @@ export default function AdminUsuariosPage() {
   // Errores de validación
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Cargar datos
+  // Cargar usuarios
   const fetchUsuarios = async () => {
     try {
       const res = await fetch("http://localhost:3001/admin/usuarios", {
@@ -56,6 +58,7 @@ export default function AdminUsuariosPage() {
     }
   };
 
+  // Cargar roles
   const fetchRoles = async () => {
     try {
       const res = await fetch("http://localhost:3001/admin/roles", {
@@ -73,7 +76,7 @@ export default function AdminUsuariosPage() {
     fetchRoles();
   }, []);
 
-  // Cambiar estado
+  // Cambiar estado activo/inactivo
   const cambiarEstado = async (id: number, activo: boolean) => {
     const res = await fetch(`http://localhost:3001/admin/usuarios/${id}/estado`, {
       method: "PUT",
@@ -114,7 +117,7 @@ export default function AdminUsuariosPage() {
     }
   };
 
-  // Abrir modal
+  // Abrir modal editar
   const abrirModal = (usuario: Usuario) => {
     setUsuarioEdit(usuario);
     setEditForm({
@@ -128,7 +131,7 @@ export default function AdminUsuariosPage() {
     setShowModal(true);
   };
 
-  // ✅ Validar antes de guardar
+  // Validar antes de guardar
   const validarFormulario = () => {
     const newErrors: Record<string, string> = {};
     const { nombre, apellido, email, telefono, rolCodigo } = editForm;
@@ -152,7 +155,7 @@ export default function AdminUsuariosPage() {
   // Guardar cambios
   const guardarCambios = async () => {
     if (!usuarioEdit) return;
-    if (!validarFormulario()) return; // 🚫 No sigue si hay errores
+    if (!validarFormulario()) return;
 
     try {
       const res = await fetch(`http://localhost:3001/admin/usuarios/${usuarioEdit.id}`, {
@@ -182,6 +185,7 @@ export default function AdminUsuariosPage() {
   return (
     <div className="min-h-screen bg-[#FFFBEA] px-8 py-10">
       <div className="max-w-7xl mx-auto bg-white rounded-2xl shadow-md p-8 border border-[#E5E5E5]">
+        {/* 🔹 Encabezado */}
         <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
           <h1 className="text-3xl font-bold text-[#3E5C3A] flex items-center gap-2">
             <ShieldCheck className="w-7 h-7 text-[#4C7043]" />
@@ -199,13 +203,19 @@ export default function AdminUsuariosPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <button className="btn bg-[#4C7043] text-white hover:bg-[#3E5C3A] rounded-lg shadow-sm">
+
+            {/* ✅ BOTÓN CON router.push */}
+            <button
+              onClick={() => router.push("/admin/registro-usuario")}
+              className="btn bg-[#4C7043] text-white hover:bg-[#3E5C3A] rounded-lg shadow-sm"
+            >
               <UserPlus className="w-5 h-5 mr-1" />
               Nuevo Usuario
             </button>
           </div>
         </div>
 
+        {/* 🔹 Tabla de usuarios */}
         {loading ? (
           <p className="text-center text-gray-500 py-10 text-lg">Cargando usuarios...</p>
         ) : (
@@ -226,7 +236,9 @@ export default function AdminUsuariosPage() {
                   usuariosFiltrados.map((u) => (
                     <tr key={u.id} className="hover:bg-[#FAFAF8] border-b border-[#DCE5D7]">
                       <td className="py-3 px-5 font-semibold text-gray-700">{u.id}</td>
-                      <td className="py-3 px-5">{u.nombre} {u.apellido}</td>
+                      <td className="py-3 px-5">
+                        {u.nombre} {u.apellido}
+                      </td>
                       <td className="py-3 px-5 text-gray-700">{u.email}</td>
                       <td className="py-3 px-5">{u.rol?.nombre}</td>
                       <td className="py-3 px-5">

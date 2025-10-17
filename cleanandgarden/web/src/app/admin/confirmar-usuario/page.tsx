@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-export default function ConfirmarJardineroPage() {
+export default function ConfirmarUsuarioPage() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
@@ -20,7 +20,7 @@ export default function ConfirmarJardineroPage() {
       }
 
       try {
-        const res = await fetch(`http://localhost:3001/admin/confirmar-jardinero/${token}`);
+        const res = await fetch(`http://localhost:3001/admin/confirmar-usuario/${token}`);
         const data = await res.json();
 
         if (!res.ok) {
