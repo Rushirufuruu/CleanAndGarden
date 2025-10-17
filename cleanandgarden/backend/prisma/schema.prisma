@@ -331,10 +331,10 @@ model portafolio_item {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model rol {
-  id          BigInt        @id @default(autoincrement())
-  codigo      String        @unique @db.VarChar(20)
-  nombre      String        @db.VarChar(50)
-  usuario_rol usuario_rol[]
+  id      BigInt    @id @default(autoincrement())
+  codigo  String    @unique @db.VarChar(20)
+  nombre  String    @db.VarChar(50)
+  usuario usuario[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -364,6 +364,7 @@ model usuario {
   fecha_creacion                              DateTime                    @default(now()) @db.Timestamptz(6)
   fecha_actualizacion                         DateTime                    @default(now()) @db.Timestamptz(6)
   apellido                                    String?
+  rol_id                                      BigInt
   cita_cita_cancelada_por_usuario_idTousuario cita[]                      @relation("cita_cancelada_por_usuario_idTousuario")
   cita_cita_cliente_idTousuario               cita[]                      @relation("cita_cliente_idTousuario")
   cita_cita_tecnico_idTousuario               cita[]                      @relation("cita_tecnico_idTousuario")
@@ -384,20 +385,8 @@ model usuario {
   participante_conversacion                   participante_conversacion[]
   perfil_cliente                              perfil_cliente?
   reset_token                                 reset_token[]
-  usuario_rol                                 usuario_rol[]
+  rol                                         rol                         @relation(fields: [rol_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_usuario_rol")
   visita                                      visita[]
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model usuario_rol {
-  id         BigInt  @id @default(autoincrement())
-  usuario_id BigInt
-  rol_id     BigInt
-  rol        rol     @relation(fields: [rol_id], references: [id], onUpdate: NoAction)
-  usuario    usuario @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([usuario_id, rol_id], map: "usuario_rol_usuario_id_rol_id_idx")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -416,6 +405,7 @@ model visita {
   portafolio_item     portafolio_item[]
   cita                cita              @relation(fields: [cita_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   usuario             usuario           @relation(fields: [tecnico_id], references: [id], onUpdate: NoAction)
+  visita_producto     visita_producto[]
 }
 
 model comuna {
@@ -453,6 +443,32 @@ model confirm_token {
   expiresAt DateTime  @db.Timestamptz(6)
   createdAt DateTime? @default(now()) @db.Timestamptz(6)
   usuario   usuario   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model producto {
+  id                  BigInt            @id(map: "insumo_pkey") @default(autoincrement())
+  nombre              String            @unique(map: "insumo_nombre_unique") @db.VarChar(100)
+  descripcion         String?
+  precio_unitario     Decimal?          @db.Decimal(12, 2)
+  stock_actual        Int?
+  activo              Boolean           @default(true)
+  fecha_creacion      DateTime          @default(now()) @db.Timestamptz(6)
+  fecha_actualizacion DateTime          @default(now()) @db.Timestamptz(6)
+  visita_producto     visita_producto[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model visita_producto {
+  id             BigInt   @id @default(autoincrement())
+  visita_id      BigInt
+  producto_id    BigInt
+  cantidad       Int      @default(1)
+  costo_unitario Decimal? @db.Decimal(12, 2)
+  costo_total    Decimal? @default(dbgenerated("((cantidad)::numeric * costo_unitario)")) @db.Decimal(12, 2)
+  fecha_registro DateTime @default(now()) @db.Timestamptz(6)
+  producto       producto @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  visita         visita   @relation(fields: [visita_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 enum estado_cita {

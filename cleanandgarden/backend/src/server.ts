@@ -370,6 +370,125 @@ app.get('/servicios', async (req, res) => {
   }
 });
 
+// Obtener todos los servicios para admin (incluye inactivos)
+app.get('/admin/servicios', async (req, res) => {
+  try {
+    const servicios = await prisma.servicio.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        descripcion: true,
+        duracion_minutos: true,
+        precio_clp: true,
+        activo: true,
+        fecha_creacion: true,
+        fecha_actualizacion: true,
+        imagen: {
+          select: {
+            url_publica: true,
+            clave_storage: true
+          }
+        }
+      },
+      orderBy: { 
+        nombre: 'asc' 
+      }
+    });
+
+    // Formatear datos para el admin
+    const serviciosFormatted = servicios.map(servicio => ({
+      id: Number(servicio.id),
+      nombre: servicio.nombre,
+      descripcion: servicio.descripcion || '',
+      duracion: servicio.duracion_minutos || 0,
+      precio: servicio.precio_clp ? Number(servicio.precio_clp) : 0,
+      activo: servicio.activo,
+      fechaCreacion: servicio.fecha_creacion,
+      fechaActualizacion: servicio.fecha_actualizacion,
+      imagenUrl: servicio.imagen?.url_publica || null
+    }));
+
+    res.json(toJSONSafe(serviciosFormatted));
+  } catch (err: any) {
+    console.error("❌ Error al obtener servicios admin:", err);
+    res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
+  }
+});
+
+// Crear nuevo servicio (admin)
+app.post('/admin/servicios', async (req, res) => {
+  try {
+    const { nombre, descripcion, duracion_minutos, precio_clp, imagen_url, activo } = req.body;
+
+    // Validaciones básicas
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre del servicio es requerido' });
+    }
+
+    if (!duracion_minutos || duracion_minutos <= 0) {
+      return res.status(400).json({ error: 'La duración debe ser mayor a 0' });
+    }
+
+    if (!precio_clp || precio_clp <= 0) {
+      return res.status(400).json({ error: 'El precio debe ser mayor a 0' });
+    }
+
+    // Verificar si ya existe un servicio con el mismo nombre
+    const servicioExistente = await prisma.servicio.findUnique({
+      where: { nombre: nombre.trim() }
+    });
+
+    if (servicioExistente) {
+      return res.status(400).json({ error: 'Ya existe un servicio con ese nombre' });
+    }
+
+    // Crear el servicio
+    let imagen_id = null;
+    
+    // Si hay URL de imagen, crear registro en tabla imagen
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          tipo: 'servicio',
+          clave_storage: `servicios/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg' // Asumimos JPEG por defecto
+        }
+      });
+      imagen_id = nuevaImagen.id;
+    }
+
+    const nuevoServicio = await prisma.servicio.create({
+      data: {
+        nombre: nombre.trim(),
+        descripcion: descripcion?.trim() || null,
+        duracion_minutos: parseInt(duracion_minutos),
+        precio_clp: parseFloat(precio_clp),
+        imagen_id: imagen_id, // Asociar imagen si existe
+        activo: activo !== false // por defecto true
+      }
+    });
+
+    console.log("✅ Servicio creado:", nuevoServicio.nombre);
+
+    res.status(201).json({
+      message: 'Servicio creado exitosamente',
+      servicio: {
+        id: Number(nuevoServicio.id),
+        nombre: nuevoServicio.nombre,
+        descripcion: nuevoServicio.descripcion,
+        duracion: nuevoServicio.duracion_minutos,
+        precio: Number(nuevoServicio.precio_clp),
+        activo: nuevoServicio.activo
+      }
+    });
+
+  } catch (err: any) {
+    console.error("❌ Error al crear servicio:", err);
+    res.status(500).json({ error: err.message ?? 'Error al crear el servicio' });
+  }
+});
+
 // Registrar un nuevo usuario
 // - Valida inputs mínimos
 // - Verifica que el email no exista
@@ -457,6 +576,16 @@ app.post("/usuario", async (req, res) => {
 
     // ===== Crear usuario (inactivo) =====
     const contrasena_hash = await bcrypt.hash(password, 12);
+    
+    // Buscar el rol de cliente por defecto
+    const rolCliente = await prisma.rol.findFirst({
+      where: { codigo: 'cliente' }
+    });
+    
+    if (!rolCliente) {
+      return res.status(500).json({ error: 'Rol de cliente no encontrado en la base de datos' });
+    }
+
     const nuevoUsuario = await prisma.usuario.create({
       data: {
         nombre,
@@ -464,7 +593,8 @@ app.post("/usuario", async (req, res) => {
         email,
         telefono,
         contrasena_hash,
-        activo: false, // 👈 se crea inactivo hasta confirmar
+        rol_id: rolCliente.id, 
+        activo: false, 
       },
       select: {
         id: true,
