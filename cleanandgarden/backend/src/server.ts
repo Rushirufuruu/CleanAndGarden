@@ -1583,6 +1583,115 @@ app.get("/admin/confirmar-usuario/:token", async (req, res) => {
   }
 });
 
+// =======================================
+// 🧺 PANEL ADMIN — Gestión de Insumos (Productos)
+// =======================================
+
+app.get("/admin/insumos", verifyAdmin, async (_req, res) => {
+  try {
+    const insumos = await prisma.producto.findMany({
+      orderBy: { fecha_creacion: "desc" },
+    });
+
+    // Convertimos BigInt → Number para evitar errores en JSON
+    res.json(JSON.parse(JSON.stringify(insumos, (_, v) => (typeof v === "bigint" ? Number(v) : v))));
+  } catch (err: any) {
+    console.error("❌ Error al listar insumos:", err);
+    res.status(500).json({ error: "Error al listar insumos" });
+  }
+});
+
+// ✅ Crear insumo (el estado se define automáticamente según el stock)
+app.post("/admin/insumos", verifyAdmin, async (req, res) => {
+  try {
+    const { nombre, descripcion, precio_unitario, stock_actual } = req.body;
+
+    if (!nombre?.trim()) {
+      return res.status(400).json({ error: "El nombre del insumo es obligatorio" });
+    }
+
+    const existente = await prisma.producto.findUnique({ where: { nombre } });
+    if (existente) {
+      return res.status(409).json({ error: "Ya existe un insumo con ese nombre" });
+    }
+
+    const nuevo = await prisma.producto.create({
+      data: {
+        nombre: nombre.trim(),
+        descripcion: descripcion?.trim() || null,
+        precio_unitario: precio_unitario ? parseFloat(precio_unitario) : 0,
+        stock_actual: stock_actual ? parseInt(stock_actual) : 0,
+        activo: Number(stock_actual) > 0, // 🔁 Se define automáticamente
+      },
+    });
+
+    res.status(201).json({
+      message: "✅ Insumo creado correctamente",
+      insumo: JSON.parse(JSON.stringify(nuevo, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear insumo:", err.message);
+    res.status(500).json({ error: "Error al crear insumo" });
+  }
+});
+
+// ✅ Actualizar insumo (estado cambia automáticamente si cambia el stock)
+app.put("/admin/insumos/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, precio_unitario, stock_actual } = req.body;
+
+    const insumo = await prisma.producto.findUnique({ where: { id: BigInt(id) } });
+    if (!insumo) return res.status(404).json({ error: "Insumo no encontrado" });
+
+    // Aseguramos que siempre sea un número válido (>= 0)
+    const nuevoStock =
+      stock_actual !== undefined && stock_actual !== null
+        ? Number(stock_actual)
+        : Number(insumo.stock_actual) || 0;
+
+    const actualizado = await prisma.producto.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre?.trim() || insumo.nombre,
+        descripcion: descripcion?.trim() || insumo.descripcion,
+        precio_unitario: precio_unitario ? parseFloat(precio_unitario) : insumo.precio_unitario,
+        stock_actual: nuevoStock,
+        activo: Number(nuevoStock) > 0, // ✅ TypeScript ya no reclama
+        fecha_actualizacion: new Date(),
+      },
+    });
+
+
+    res.json({
+      message: "✅ Insumo actualizado correctamente",
+      insumo: JSON.parse(JSON.stringify(actualizado, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar insumo:", err.message);
+    res.status(500).json({ error: "Error al actualizar insumo" });
+  }
+});
+
+// ✅ Eliminar insumo
+app.delete("/admin/insumos/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const insumo = await prisma.producto.findUnique({ where: { id: BigInt(id) } });
+    if (!insumo) return res.status(404).json({ error: "Insumo no encontrado" });
+
+    await prisma.producto.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "🗑️ Insumo eliminado correctamente" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar insumo:", err.message);
+    res.status(500).json({ error: "Error al eliminar insumo" });
+  }
+});
+
+
+
 
 
 // Verificar variables de entorno al inicio
