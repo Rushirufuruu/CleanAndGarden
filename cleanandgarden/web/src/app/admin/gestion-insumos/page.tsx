@@ -165,7 +165,7 @@ export default function GestionInsumos() {
         {/* 🧾 Formulario */}
         <form
           onSubmit={handleSave}
-          className="bg-[#F5E9D7] rounded-xl p-6 mb-8 shadow-inner border border-[#D7C4A3]"
+          className="bg-[#F3F6F1] rounded-xl p-6 mb-8 shadow-inner border border-[#2E5430]"
         >
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             {editId ? "✏️ Editar insumo" : <><Plus size={18} /> Crear nuevo insumo</>}

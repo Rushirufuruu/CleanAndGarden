@@ -1690,6 +1690,172 @@ app.delete("/admin/insumos/:id", verifyAdmin, async (req, res) => {
   }
 });
 
+// =======================================
+// 🏡 PANEL ADMIN — Gestión de Direcciones y Jardines
+// =======================================
+
+// ✅ Listar todas las direcciones con cliente y jardines asociados
+app.get("/admin/direcciones", verifyAdmin, async (_req, res) => {
+  try {
+    const direcciones = await prisma.direccion.findMany({
+      include: {
+        usuario: {
+          select: { id: true, nombre: true, apellido: true, email: true },
+        },
+        comuna: {
+          include: { region: true },
+        },
+        jardin: {
+          select: {
+            id: true,
+            nombre: true,
+            activo: true,
+            area_m2: true,
+            tipo_suelo: true,
+            descripcion: true,
+            fecha_creacion: true,
+            fecha_actualizacion: true,
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    res.json(toJSONSafe(direcciones));
+  } catch (err: any) {
+    console.error("❌ Error al listar direcciones:", err);
+    res.status(500).json({ error: "Error al listar direcciones" });
+  }
+});
+
+// ✅ Crear jardín (con validaciones completas)
+app.post("/admin/jardines", verifyAdmin, async (req, res) => {
+  try {
+    const { cliente_id, direccion_id, nombre, area_m2, tipo_suelo, descripcion } = req.body;
+
+    // 🧩 Validaciones
+    const errors: Record<string, string> = {};
+
+    if (!cliente_id) errors.cliente_id = "El cliente es obligatorio";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim())
+      errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim())
+      errors.descripcion = "La descripción es obligatoria";
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    const jardin = await prisma.jardin.create({
+      data: {
+        cliente_id: BigInt(cliente_id),
+        direccion_id: BigInt(direccion_id),
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        activo: true,
+      },
+    });
+
+    res.status(201).json({
+      message: "✅ Jardín creado correctamente",
+      jardin: toJSONSafe(jardin),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear jardín:", err.message);
+    res.status(500).json({ error: "Error al crear jardín" });
+  }
+});
+
+// ✅ Editar jardín (con validaciones completas)
+app.put("/admin/jardines/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, area_m2, tipo_suelo, descripcion } = req.body;
+
+    // 🧩 Validaciones
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim())
+      errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim())
+      errors.descripcion = "La descripción es obligatoria";
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    const actualizado = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        fecha_actualizacion: new Date(),
+      },
+    });
+
+    res.json({
+      message: "✅ Jardín actualizado correctamente",
+      jardin: toJSONSafe(actualizado),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al editar jardín:", err);
+    res.status(500).json({ error: "Error al editar jardín" });
+  }
+});
+
+
+// ✅ Activar / Desactivar jardín
+app.put("/admin/jardines/:id/estado", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    const actualizado = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: { activo: !jardin.activo },
+    });
+
+    res.json({
+      message: `Jardín ${actualizado.activo ? "activado" : "desactivado"} correctamente ✅`,
+      jardin: toJSONSafe(actualizado),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al cambiar estado:", err);
+    res.status(500).json({ error: "Error al cambiar estado" });
+  }
+});
+
+// ✅ Eliminar jardín
+app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    await prisma.jardin.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "🗑️ Jardín eliminado correctamente" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar jardín:", err);
+    res.status(500).json({ error: "Error al eliminar jardín" });
+  }
+});
+
 
 
 

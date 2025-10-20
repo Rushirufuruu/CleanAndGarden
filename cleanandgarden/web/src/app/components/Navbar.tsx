@@ -209,6 +209,15 @@ export default function Navbar() {
                     </Link>
                   </li>
                   <li>
+                    <Link
+                      href="/admin/gestion-insumos"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <ShieldCheck size={18} /> Gestión de Insumos
+                    </Link>
+                  </li>
+                  <li>
                     <span className="flex items-center gap-2 px-4 py-2 text-gray-400 cursor-not-allowed">
                       <BarChart3 size={18} /> (Más opciones pronto)
                     </span>
