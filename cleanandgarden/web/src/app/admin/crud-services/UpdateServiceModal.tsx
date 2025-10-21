@@ -181,9 +181,9 @@ export default function UpdateServiceModal({
       
       onServiceUpdated();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error al actualizar servicio:", err);
-      setError(err.message || "Error al actualizar el servicio");
+      setError(err instanceof Error ? err.message : "Error al actualizar el servicio");
     } finally {
       setIsSubmitting(false);
     }

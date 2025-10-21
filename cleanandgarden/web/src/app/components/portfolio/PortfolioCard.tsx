@@ -1,5 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export interface Trabajo {
   id: number;
@@ -19,9 +20,11 @@ export default function PortafolioCard({ trabajo }: { trabajo: Trabajo }) {
 
   return (
     <div className="rounded-2xl shadow p-4 bg-white">
-      <img
+      <Image
         src={trabajo.imagenUrl}
         alt={trabajo.titulo}
+        width={400}
+        height={160}
         className="h-40 w-full object-cover rounded-lg"
       />
       <h3 className="font-semibold mt-4">{trabajo.titulo}</h3>
