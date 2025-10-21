@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.76.0",
     "@tailwindcss/vite": "^4.1.13",
     "lucide-react": "^0.545.0",
     "next": "^15.5.3",

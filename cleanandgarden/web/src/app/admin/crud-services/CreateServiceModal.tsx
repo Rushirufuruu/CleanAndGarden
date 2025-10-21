@@ -1,15 +1,39 @@
 "use client";
 import { useState } from "react";
+import { supabase } from "../../../lib/supabase";
 
-// Función para subir imagen a Supabase Storage (simulada por ahora)
+// Función para subir imagen a Supabase Storage
 const uploadImageToSupabase = async (file: File): Promise<string | null> => {
-  // TODO: Implementar subida real a Supabase Storage
-  // Por ahora retornamos una URL simulada
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(`https://via.placeholder.com/400x300?text=${encodeURIComponent(file.name)}`);
-    }, 1000);
-  });
+  try {
+    console.log('🔄 Iniciando subida de imagen:', file.name, 'Tamaño:', file.size);
+    
+    // Generar nombre único para el archivo
+    const fileName = `services/${Date.now()}-${file.name}`;
+    console.log('📁 Nombre del archivo:', fileName);
+    
+    // Subir archivo al bucket
+    const { data, error } = await supabase.storage
+      .from('clean-and-garden-bucket')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error('❌ Error uploading image:', error);
+      throw error;
+    }
+
+    console.log('✅ Imagen subida exitosamente:', data);
+
+    // Obtener URL pública
+    const { data: urlData } = supabase.storage
+      .from('clean-and-garden-bucket')
+      .getPublicUrl(fileName);
+
+    console.log('🔗 URL pública generada:', urlData.publicUrl);
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('❌ Error in uploadImageToSupabase:', error);
+    return null;
+  }
 };
 
 interface CreateServiceModalProps {
@@ -93,6 +117,12 @@ export default function CreateServiceModal({
       });
 
       if (!response.ok) {
+        // Verificar si la respuesta es HTML (error del servidor)
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error(`Error del servidor (${response.status}). Verifica que el backend esté corriendo en http://localhost:3001`);
+        }
+        
         const errorData = await response.json();
         throw new Error(errorData.error || "Error al crear el servicio");
       }

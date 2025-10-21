@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import CreateServiceModal from "./CreateServiceModal";
+import UpdateServiceModal from "./UpdateServiceModal";
 
 interface Servicio {
   id: number;
@@ -20,6 +21,8 @@ export default function ServicesAdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedServicio, setSelectedServicio] = useState<Servicio | null>(null);
 
   // Función para cargar servicios desde la API
   const fetchServicios = async () => {
@@ -30,6 +33,12 @@ export default function ServicesAdminPage() {
       const response = await fetch('http://localhost:3001/admin/servicios');
       
       if (!response.ok) {
+        // Verificar si la respuesta es HTML (error del servidor)
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error(`Error del servidor (${response.status}). Verifica que el endpoint /admin/servicios exista en el backend`);
+        }
+        
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       
@@ -50,8 +59,11 @@ export default function ServicesAdminPage() {
   }, []);
 
   const handleModificar = (id: number) => {
-    // TODO: Implementar modal de edición
-    alert(`Función de modificar servicio ID ${id} - Pendiente de implementar`);
+    const servicio = servicios.find(s => s.id === id);
+    if (servicio) {
+      setSelectedServicio(servicio);
+      setShowUpdateModal(true);
+    }
   };
 
   const handleDesactivar = async (id: number) => {
@@ -81,6 +93,41 @@ export default function ServicesAdminPage() {
     }
   };
 
+  const handleEliminar = async (id: number) => {
+    const servicio = servicios.find(s => s.id === id);
+    if (!servicio) return;
+
+    const confirmado = confirm(`¿Estás seguro de eliminar permanentemente el servicio "${servicio.nombre}"?\n\nEsta acción NO se puede deshacer.`);
+    
+    if (confirmado) {
+      try {
+        const response = await fetch(`http://localhost:3001/admin/servicios/${id}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          // Verificar si la respuesta es HTML (error del servidor)
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("text/html")) {
+            throw new Error(`Error del servidor (${response.status}). Verifica que el endpoint DELETE /admin/servicios/${id} exista en el backend`);
+          }
+          
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Error al eliminar el servicio');
+        }
+
+        // Remover el servicio de la lista local
+        setServicios(prev => prev.filter(s => s.id !== id));
+        
+        alert('Servicio eliminado correctamente');
+      } catch (err) {
+        console.error('Error al eliminar servicio:', err);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        alert(`Error al eliminar el servicio: ${(err as any).message}`);
+      }
+    }
+  };
+
   const handleCrear = () => {
     setShowCreateModal(true);
   };
@@ -88,6 +135,12 @@ export default function ServicesAdminPage() {
   const handleServiceCreated = () => {
     // Recargar la lista de servicios después de crear uno nuevo
     fetchServicios();
+  };
+
+  const handleServiceUpdated = () => {
+    // Recargar la lista de servicios después de actualizar uno
+    fetchServicios();
+    setSelectedServicio(null);
   };
 
   return (
@@ -213,6 +266,14 @@ export default function ServicesAdminPage() {
                               {servicio.activo ? 'Desactivar' : 'Activar'}
                             </button>
                           </div>
+                          <div>
+                            <button
+                              onClick={() => handleEliminar(servicio.id)}
+                              className="w-24 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md font-semibold text-sm"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -229,6 +290,17 @@ export default function ServicesAdminPage() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onServiceCreated={handleServiceCreated}
+      />
+
+      {/* Modal de actualizar servicio */}
+      <UpdateServiceModal
+        isOpen={showUpdateModal}
+        onClose={() => {
+          setShowUpdateModal(false);
+          setSelectedServicio(null);
+        }}
+        onServiceUpdated={handleServiceUpdated}
+        servicio={selectedServicio}
       />
     </main>
   );
