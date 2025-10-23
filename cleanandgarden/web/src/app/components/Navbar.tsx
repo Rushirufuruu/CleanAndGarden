@@ -264,6 +264,14 @@ export default function Navbar() {
           </>
         ) : (
           <>
+            <Link href="/mensajes">
+              <span
+                className="btn rounded-lg"
+                style={{ backgroundColor: "#4a7e49", color: "#fff", border: "none" }}
+              >
+                Mensajes
+              </span>
+            </Link>
             <Link href="/profile">
               <span className="btn rounded-lg bg-[#2E5430] text-white border-none">
                 Mi Perfil
@@ -295,6 +303,72 @@ export default function Navbar() {
           animation: fadeIn 0.25s ease-in-out;
         }
       `}</style>
+      {/* Menú móvil */}
+      <div className="lg:hidden navbar-end" style={{ backgroundColor: "#f5e9d7" }}>
+        <div className="dropdown dropdown-end">
+          <label tabIndex={0} className="btn btn-ghost btn-circle">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </label>
+          <ul
+            tabIndex={0}
+            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow rounded-box w-52"
+            style={{ backgroundColor: "#f5e9d7" }}
+          >
+            <li><Link href="/">Inicio</Link></li>
+            <li><Link href="/about-us">Quienes Somos</Link></li>
+            <li><Link href="/our-services">Servicios</Link></li>
+            <li><Link href="/portfolio">Portafolio</Link></li>
+            <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+            {!isLoggedIn ? (
+              <li>
+                <Link href="/login">
+                  <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                    Regístrate o inicia sesión
+                  </span>
+                </Link>
+              </li>
+            ) : (
+              <>
+                <li>
+                  <Link href="/mensajes">
+                    <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                      Mensajes
+                    </span>
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/profile">
+                    <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                      Mi Perfil
+                    </span>
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    onClick={handleLogout}
+                    className="btn rounded-lg w-full bg-[#b93b3b] text-white border-none"
+                  >
+                    Cerrar Sesión
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

@@ -20,6 +20,15 @@ import { Request, Response } from "express";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 
+// Integrar WebSocket con Express
+import { createServer } from 'http';
+import { ChatWebSocket } from './lib/websocket';
+
+declare global {
+  // eslint-disable-next-line no-var
+  var chatWebSocketInstance: import('./lib/websocket').ChatWebSocket | undefined;
+}
+
 // Creamos la app de Express (hay que pensarlo como el "router" principal de la API)
 const app = express()
 // Habilita CORS: permite que el front pueda llamar a la api
@@ -119,7 +128,8 @@ app.get('/regiones', async (_req, res) => {
       orderBy: { nombre: 'asc' },
     });
 
-    res.json(toJSONSafe(regiones)); //  convierte BigInt a Number
+   
+    res.json(toJSONSafe(regiones)); // convierte BigInt a Number
   } catch (err: any) {
     console.error("Error en /regiones:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener regiones' });
@@ -1028,6 +1038,9 @@ app.post("/usuario", async (req, res) => {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS,
           },
+          tls: {
+            rejectUnauthorized: false,
+          },
         });
 
         await transporter.sendMail({
@@ -1318,6 +1331,9 @@ app.post("/forgot-password", async (req: Request, res: Response) => {
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
       },
     });
 
@@ -2403,10 +2419,13 @@ console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
 console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
 console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
 
-// Leemos el puerto desde las variables de entorno; si no, usamos 3001 por defecto
-// Convierte a Number y arranca el servidor
-const port = Number(process.env.PORT ?? 3001)
-app.listen(port, () => console.log(`API backend listening on port ${port}`))
+
+const port = Number(process.env.PORT ?? 3001);
+const server = createServer(app);
+server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
+
+// Inicializar WebSocket sobre el mismo servidor HTTP
+global.chatWebSocketInstance = new ChatWebSocket(server);
 
 // 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
 setInterval(async () => {
@@ -2431,6 +2450,357 @@ setInterval(async () => {
     console.error("Error limpiando tokens expirados:", err);
   }
 }, 5 * 60 * 1000); // cada 5 minutos
+
+// ==========================================
+// 💬 ENDPOINTS DE CHAT / MENSAJERÍA
+// ==========================================
+
+// Obtener todas las conversaciones del usuario logueado
+app.get('/conversaciones', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+
+    const conversaciones = await prisma.conversacion.findMany({
+      where: {
+        participante_conversacion: {
+          some: {
+            usuario_id: BigInt(userId)
+          }
+        }
+      },
+      include: {
+        participante_conversacion: {
+          include: {
+            usuario: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                email: true
+              }
+            }
+          }
+        },
+        mensaje: {
+          orderBy: {
+            creado_en: 'desc'
+          },
+          take: 1,
+          select: {
+            cuerpo: true,
+            creado_en: true,
+            remitente_id: true
+          }
+        }
+      },
+      orderBy: {
+        fecha_creacion: 'desc'
+      }
+    });
+
+    const conversacionesFormatted = conversaciones.map(conv => {
+      // Obtener el otro participante (no el usuario logueado)
+      const otroParticipante = conv.participante_conversacion.find(
+        p => Number(p.usuario_id) !== Number(userId)
+      );
+
+      return {
+        id: Number(conv.id),
+        tipo: conv.tipo,
+        ultimoMensaje: conv.mensaje[0] ? {
+          cuerpo: conv.mensaje[0].cuerpo,
+          fecha: conv.mensaje[0].creado_en,
+          esMio: Number(conv.mensaje[0].remitente_id) === Number(userId)
+        } : null,
+        otroUsuario: otroParticipante ? {
+          id: Number(otroParticipante.usuario.id),
+          nombre: otroParticipante.usuario.nombre,
+          apellido: otroParticipante.usuario.apellido,
+          email: otroParticipante.usuario.email
+        } : null,
+        fechaCreacion: conv.fecha_creacion
+      };
+    });
+
+    res.json(toJSONSafe(conversacionesFormatted));
+  } catch (err) {
+    console.error('❌ Error al obtener conversaciones:', err);
+    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  }
+});
+
+// Obtener mensajes de una conversación específica
+app.get('/conversaciones/:id/mensajes', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const conversacionId = BigInt(req.params.id);
+
+    // Verificar que el usuario sea participante de la conversación
+    const participante = await prisma.participante_conversacion.findFirst({
+      where: {
+        conversacion_id: conversacionId,
+        usuario_id: BigInt(userId)
+      }
+    });
+
+    if (!participante) {
+      return res.status(403).json({ error: 'No tienes acceso a esta conversación' });
+    }
+
+    const mensajes = await prisma.mensaje.findMany({
+      where: {
+        conversacion_id: conversacionId,
+        eliminado_en: null
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true
+          }
+        }
+      },
+      orderBy: {
+        creado_en: 'asc'
+      }
+    });
+
+    const mensajesFormatted = mensajes.map(msg => ({
+      id: Number(msg.id),
+      cuerpo: msg.cuerpo,
+      remitenteId: Number(msg.remitente_id),
+      remitente: {
+        id: Number(msg.usuario.id),
+        nombre: msg.usuario.nombre,
+        apellido: msg.usuario.apellido
+      },
+      creadoEn: msg.creado_en,
+      editadoEn: msg.editado_en
+    }));
+
+    res.json(toJSONSafe(mensajesFormatted));
+  } catch (err) {
+    console.error('❌ Error al obtener mensajes:', err);
+    res.status(500).json({ error: 'Error al obtener mensajes' });
+  }
+});
+
+// Crear o obtener conversación con otro usuario
+app.post('/conversaciones', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { otroUsuarioId } = req.body;
+
+    if (!otroUsuarioId) {
+      return res.status(400).json({ error: 'Se requiere otroUsuarioId' });
+    }
+
+    // Verificar que el otro usuario existe
+    const otroUsuario = await prisma.usuario.findUnique({
+      where: { id: BigInt(otroUsuarioId) }
+    });
+
+    if (!otroUsuario) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Buscar si ya existe una conversación entre estos dos usuarios
+    const conversacionExistente = await prisma.conversacion.findFirst({
+      where: {
+        tipo: 'directo',
+        participante_conversacion: {
+          every: {
+            OR: [
+              { usuario_id: BigInt(userId) },
+              { usuario_id: BigInt(otroUsuarioId) }
+            ]
+          }
+        }
+      },
+      include: {
+        participante_conversacion: {
+          where: {
+            OR: [
+              { usuario_id: BigInt(userId) },
+              { usuario_id: BigInt(otroUsuarioId) }
+            ]
+          }
+        }
+      }
+    });
+
+    // Si existe y tiene exactamente 2 participantes (los dos usuarios), devolver esa conversación
+    if (conversacionExistente && conversacionExistente.participante_conversacion.length === 2) {
+      return res.json({ 
+        id: Number(conversacionExistente.id),
+        mensaje: 'Conversación ya existe'
+      });
+    }
+
+    // Crear nueva conversación
+    const nuevaConversacion = await prisma.conversacion.create({
+      data: {
+        tipo: 'directo',
+        participante_conversacion: {
+          create: [
+            {
+              usuario_id: BigInt(userId),
+              rol_participante: 'miembro'
+            },
+            {
+              usuario_id: BigInt(otroUsuarioId),
+              rol_participante: 'miembro'
+            }
+          ]
+        }
+      }
+    });
+
+    res.json({
+      id: Number(nuevaConversacion.id),
+      mensaje: 'Conversación creada exitosamente'
+    });
+  } catch (err) {
+    console.error('❌ Error al crear conversación:', err);
+    res.status(500).json({ error: 'Error al crear conversación' });
+  }
+});
+
+// Enviar un mensaje
+app.post('/mensajes', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { conversacionId, cuerpo } = req.body;
+
+    if (!conversacionId || !cuerpo) {
+      return res.status(400).json({ error: 'Se requiere conversacionId y cuerpo' });
+    }
+
+    // Verificar que el usuario sea participante de la conversación
+    const participante = await prisma.participante_conversacion.findFirst({
+      where: {
+        conversacion_id: BigInt(conversacionId),
+        usuario_id: BigInt(userId)
+      }
+    });
+
+    if (!participante) {
+      return res.status(403).json({ error: 'No tienes acceso a esta conversación' });
+    }
+
+    // Crear el mensaje
+    const nuevoMensaje = await prisma.mensaje.create({
+      data: {
+        conversacion_id: BigInt(conversacionId),
+        remitente_id: BigInt(userId),
+        cuerpo: cuerpo
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true
+          }
+        }
+      }
+    });
+
+    const mensajeFormatted = {
+      id: Number(nuevoMensaje.id),
+      cuerpo: nuevoMensaje.cuerpo,
+      remitenteId: Number(nuevoMensaje.remitente_id),
+      remitente: {
+        id: Number(nuevoMensaje.usuario.id),
+        nombre: nuevoMensaje.usuario.nombre,
+        apellido: nuevoMensaje.usuario.apellido
+      },
+      creadoEn: nuevoMensaje.creado_en,
+      conversacionId: Number(nuevoMensaje.conversacion_id)
+    };
+
+    // Broadcast por WebSocket para notificar a los clientes en tiempo real
+    if (global.chatWebSocketInstance) {
+      global.chatWebSocketInstance.broadcast(
+        JSON.stringify({ tipo: 'mensaje', ...mensajeFormatted })
+      );
+    }
+
+    res.json(toJSONSafe(mensajeFormatted));
+  } catch (err) {
+    console.error('❌ Error al enviar mensaje:', err);
+    res.status(500).json({ error: 'Error al enviar mensaje' });
+  }
+});
+
+// Buscar usuarios para iniciar conversación
+app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { query, rol } = req.query;
+
+    const whereClause: any = {
+      id: {
+        not: BigInt(userId) // Excluir al usuario actual
+      },
+      activo: true
+    };
+
+    // Si se especifica un rol, filtrar por él
+    if (rol) {
+      whereClause.usuario_rol = {
+        some: {
+          rol: {
+            codigo: rol as string
+          }
+        }
+      };
+    }
+
+    // Si hay búsqueda por texto
+    if (query && typeof query === 'string') {
+      whereClause.OR = [
+        { nombre: { contains: query, mode: 'insensitive' } },
+        { apellido: { contains: query, mode: 'insensitive' } },
+        { email: { contains: query, mode: 'insensitive' } }
+      ];
+    }
+
+    const usuarios = await prisma.usuario.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        rol: {
+          select: {
+            codigo: true,
+            nombre: true
+          }
+        }
+      },
+      take: 20
+    });
+
+    const usuariosFormatted = usuarios.map(u => ({
+      id: Number(u.id),
+      nombre: u.nombre,
+      apellido: u.apellido,
+      email: u.email,
+      rol: u.rol ? {
+        codigo: u.rol.codigo,
+        nombre: u.rol.nombre
+      } : null
+    }));
+
+    res.json(toJSONSafe(usuariosFormatted));
+  } catch (err) {
+    console.error('❌ Error al buscar usuarios:', err);
+    res.status(500).json({ error: 'Error al buscar usuarios' });
+  }
+});
 
 
 
