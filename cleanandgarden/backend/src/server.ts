@@ -660,6 +660,9 @@ app.put('/admin/servicios/:id', async (req, res) => {
 // - Hashea la contraseña con bcryptjs (12 rondas)
 // - Crea el registro en la tabla `usuario`
 // Registrar un nuevo usuario
+// -------------------------------------------------------------------------------------
+// REGISTRO DE CLIENTE (con rol automático)
+// -------------------------------------------------------------------------------------
 app.post("/usuario", async (req, res) => {
   try {
     const {
@@ -674,72 +677,53 @@ app.post("/usuario", async (req, res) => {
       terminos,
     } = req.body ?? {};
 
-    // ===== Validaciones básicas =====
+    // ===== Validaciones =====
     if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es requerido" });
     if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es requerido" });
     if (!email?.trim()) return res.status(400).json({ error: "El email es requerido" });
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-    if (!emailRegex.test(email)) return res.status(400).json({ error: "Formato de email inválido" });
-
     if (!password?.trim() || password.length < 8)
       return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
-
     if (password !== confpassword)
       return res.status(400).json({ error: "Las contraseñas no coinciden" });
-
-    const strongPasswordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[A-Za-z\d!@#$%^&*(),.?":{}|<>]{8,}$/;
-    if (!strongPasswordRegex.test(password)) {
-      return res.status(400).json({
-        error:
-          "La contraseña debe tener al menos 8 caracteres, incluir una mayúscula, una minúscula, un número y un carácter especial.",
-      });
-    }
-
-    const telefonoRegex = /^\+569\d{8}$/;
-    if (!telefono || !telefonoRegex.test(telefono))
+    if (!telefono?.match(/^\+569\d{8}$/))
       return res.status(400).json({ error: "Número de teléfono no válido (+569XXXXXXXX)" });
-
     if (!direccion?.trim()) return res.status(400).json({ error: "La dirección es requerida" });
-
     if (!comunaId || isNaN(Number(comunaId)))
       return res.status(400).json({ error: "La comuna seleccionada no es válida" });
-
     if (terminos !== true)
       return res.status(400).json({ error: "Debes aceptar los términos y condiciones" });
 
     // ===== Verificar si el email ya existe =====
     const existing = await prisma.usuario.findUnique({ where: { email } });
 
-    // 🟩 NUEVO BLOQUE: manejar usuario inactivo con token expirado
     if (existing) {
       if (existing.activo) {
-        // Usuario activo → no se puede registrar otra vez
         return res.status(409).json({ error: "El email ya está registrado" });
       } else {
-        // Usuario inactivo → revisar si el token expiró
         const tokenData = await prisma.confirm_token.findFirst({
           where: { userId: existing.id },
         });
-
-        // Si no hay token o el token expiró → eliminar usuario, token y dirección
         if (!tokenData || tokenData.expiresAt < new Date()) {
           await prisma.confirm_token.deleteMany({ where: { userId: existing.id } });
           await prisma.direccion.deleteMany({ where: { usuario_id: existing.id } });
           await prisma.usuario.delete({ where: { id: existing.id } });
-          console.log(`🗑️ Usuario inactivo eliminado: ${existing.email}`);
         } else {
-          // Token aún válido → impedir registro duplicado
-          return res
-            .status(409)
-            .json({ error: "Ya existe una cuenta pendiente de activación." });
+          return res.status(409).json({
+            error: "Ya existe una cuenta pendiente de activación.",
+          });
         }
       }
     }
-    // 🟩 FIN BLOQUE NUEVO
 
-    // ===== Crear usuario (inactivo) =====
+    // ===== Buscar rol 'cliente' =====
+    const rolCliente = await prisma.rol.findUnique({
+      where: { codigo: "cliente" },
+    });
+
+    if (!rolCliente)
+      return res.status(500).json({ error: "No existe el rol 'cliente' en la base de datos" });
+
+    // ===== Crear usuario (inactivo) con rol cliente =====
     const contrasena_hash = await bcrypt.hash(password, 12);
     
     // Buscar el rol de cliente por defecto
@@ -758,8 +742,8 @@ app.post("/usuario", async (req, res) => {
         email,
         telefono,
         contrasena_hash,
-        rol_id: rolCliente.id, 
-        activo: false, 
+        activo: false,
+        rol: { connect: { id: rolCliente.id } }, // 👈 asigna rol cliente
       },
       select: {
         id: true,
@@ -768,6 +752,7 @@ app.post("/usuario", async (req, res) => {
         email: true,
         telefono: true,
         activo: true,
+        rol: { select: { codigo: true, nombre: true } },
       },
     });
 
@@ -782,18 +767,16 @@ app.post("/usuario", async (req, res) => {
 
     // ===== Generar token de confirmación =====
     const token = crypto.randomBytes(32).toString("hex");
-    const expires = new Date(Date.now() + 15 * 60 * 1000); // expira en 15 minutos
-
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
     await prisma.confirm_token.create({
       data: { userId: nuevoUsuario.id, token, expiresAt: expires },
     });
 
-    // ✅ Responder primero
     res.status(201).json({
-      message: "Usuario creado, revisa tu correo para confirmar la cuenta",
+      message: "Usuario creado. Revisa tu correo para confirmar la cuenta.",
     });
 
-    // 🚀 Enviar correo en segundo plano
+    // ===== Enviar correo de confirmación =====
     setImmediate(async () => {
       try {
         const confirmLink = `${process.env.FRONTEND_URL}/confirm-email?token=${token}`;
@@ -808,25 +791,25 @@ app.post("/usuario", async (req, res) => {
         await transporter.sendMail({
           from: process.env.EMAIL_USER,
           to: nuevoUsuario.email,
-          subject: "Confirma tu cuenta",
+          subject: "Confirma tu cuenta en Clean & Garden",
           html: `
-            <p>Bienvenido ${nuevoUsuario.nombre} ${nuevoUsuario.apellido}!</p>
-            <p>Gracias por registrarte en <b>Clean & Garden</b>. Haz clic en el siguiente enlace para activar tu cuenta:</p>
-            <p>${confirmLink}</p>
+            <p>Hola ${nuevoUsuario.nombre},</p>
+            <p>Gracias por registrarte en <b>Clean & Garden</b>.</p>
+            <p>Haz clic en el siguiente enlace para confirmar tu cuenta:</p>
+            <p><a href="${confirmLink}">${confirmLink}</a></p>
           `,
         });
 
-        console.log("✅ Correo de confirmación enviado a:", nuevoUsuario.email);
+        console.log("📧 Correo enviado a:", nuevoUsuario.email);
       } catch (err) {
-        console.error("⚠️ Error al enviar correo de confirmación:", err);
+        console.error("⚠️ Error al enviar correo:", err);
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error en /usuario:", err);
     return res.status(500).json({ error: "Error al registrar usuario" });
   }
 });
-
 
 //-------------------------------------------------------------------------------------
 // Confirmar email
@@ -910,52 +893,99 @@ app.get("/confirm-email/:token", async (req, res) => {
 
 //----------------------------------------------------------------------------------
 
+
 // =======================================
-// 🔐 LOGIN (autenticación con JWT seguro)
+// 🔐 LOGIN (maneja perfil incompleto y mantiene sesión activa)
 // =======================================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
 
-    const usuario = await prisma.usuario.findUnique({ where: { email } });
-    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+    // Buscar usuario
+    const usuario = await prisma.usuario.findUnique({
+      where: { email },
+      include: {
+        rol: { select: { codigo: true, nombre: true } },
+        direccion: {
+          include: { comuna: { include: { region: true } } },
+        },
+      },
+    });
 
+    if (!usuario) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Comparar contraseña
     const passwordMatch = await bcrypt.compare(password, usuario.contrasena_hash);
-    if (!passwordMatch) return res.status(401).json({ error: "Contraseña incorrecta" });
+    if (!passwordMatch) {
+      return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
 
-    if (!usuario.activo)
-      return res.status(403).json({ error: "Debes confirmar tu cuenta antes de iniciar sesión." });
+    // Verificar activación
+    if (!usuario.activo) {
+      return res.status(403).json({
+        error: "Debes confirmar tu cuenta antes de iniciar sesión.",
+      });
+    }
 
     // ✅ Generar token JWT
     const token = generateToken({
-      id: Number(usuario.id), // 👈 conversión segura
+      id: Number(usuario.id),
       nombre: usuario.nombre,
       email: usuario.email,
+      rol: usuario.rol.codigo,
     });
 
-    // ✅ Enviar cookie segura
+    // Guardar cookie con el token
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false,      // 👈 en desarrollo debe ser false
+      secure: false, // cambia a true en producción
       sameSite: "lax",
-      maxAge: 60 * 60 * 1000,
+      maxAge: 60 * 60 * 1000, // 1 hora
     });
 
+    // Detectar si faltan datos obligatorios
+    const faltanDatos =
+      !usuario.nombre?.trim() ||
+      !usuario.apellido?.trim() ||
+      !usuario.telefono?.trim() ||
+      usuario.direccion.length === 0;
 
-    // ✅ Respuesta al frontend
+    // ⚠️ Si fue creado por admin o tiene datos incompletos → redirigir a /profile
+    if (faltanDatos) {
+      return res.status(200).json({
+        warning:
+          "Tu perfil está incompleto. Por favor, completa tu teléfono y dirección antes de continuar.",
+        redirectTo: "profile",
+        user: {
+          id: Number(usuario.id),
+          nombre: usuario.nombre,
+          email: usuario.email,
+          rol: usuario.rol.codigo,
+        },
+      });
+    }
+
+    // ✅ Login normal
     res.status(200).json({
       message: "✅ Login exitoso",
-      user: toJSONSafe({
-        id: usuario.id,
+      user: {
+        id: Number(usuario.id),
         nombre: usuario.nombre,
         email: usuario.email,
-      }),
+        rol: usuario.rol.codigo,
+        telefono: usuario.telefono || null,
+      },
     });
   } catch (e) {
     console.error("Error en /login:", e);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });
+
+
+
 
 //------------------------------------------------------------------------------------------
 app.put("/change-password", authMiddleware, async (req, res) => {
@@ -1150,6 +1180,7 @@ app.get("/profile", authMiddleware, async (req, res) => {
         apellido: true,
         email: true,
         telefono: true,
+        rol: { select: { codigo: true } },
         direccion: {
           select: {
             id: true,
@@ -1157,9 +1188,7 @@ app.get("/profile", authMiddleware, async (req, res) => {
             comuna: {
               select: {
                 nombre: true,
-                region: {
-                  select: { nombre: true },
-                },
+                region: { select: { nombre: true } },
               },
             },
           },
@@ -1175,60 +1204,186 @@ app.get("/profile", authMiddleware, async (req, res) => {
       message: "Perfil obtenido correctamente ✅",
       user: toJSONSafe(usuario),
     });
-
   } catch (err) {
     console.error("Error en /profile:", err);
     res.status(500).json({ error: "Error al obtener perfil" });
   }
 });
 
+//--------------------------------------------------------------------
+// =======================================
+// ✏️ ACTUALIZAR PERFIL (valida teléfono si jardinero)
+// =======================================
 app.put("/profile", authMiddleware, async (req, res) => {
   try {
     const userData = (req as any).user;
     const { nombre, apellido, telefono, direcciones } = req.body;
 
-    // ✅ Actualizar datos básicos del usuario
+    // ===============================
+    // 🔎 1️⃣ Buscar usuario
+    // ===============================
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: BigInt(userData.id) },
+      include: { rol: true },
+    });
+
+    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    // ===============================
+    // 🧩 2️⃣ Validaciones básicas
+    // ===============================
+    if (!nombre?.trim())
+      return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim())
+      return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!telefono?.trim())
+      return res.status(400).json({ error: "El teléfono es obligatorio." });
+
+    if (!/^\+569\d{8}$/.test(telefono)) {
+      return res
+        .status(400)
+        .json({ error: "El número de teléfono debe tener formato válido (+569XXXXXXXX)." });
+    }
+
+    if (!Array.isArray(direcciones) || direcciones.length === 0) {
+      return res.status(400).json({
+        error: "Debes ingresar al menos una dirección con calle, región y comuna.",
+      });
+    }
+
+    // ===============================
+    // 🏠 3️⃣ Validar direcciones
+    // ===============================
+    const combinaciones = new Set<string>();
+
+    for (const [i, dir] of direcciones.entries()) {
+      if (dir._delete) continue; // omitimos las eliminadas
+
+      const calle = dir.calle?.trim();
+      const region = dir.region?.trim();
+      const comunaNombre = dir.comuna?.trim();
+
+      if (!calle || !region || !comunaNombre) {
+        return res.status(400).json({
+          error: `La dirección #${i + 1} está incompleta. Debe incluir calle, región y comuna.`,
+        });
+      }
+
+      // --- Validar que la comuna exista ---
+      const comuna = await prisma.comuna.findFirst({
+        where: {
+          nombre: { equals: comunaNombre, mode: "insensitive" },
+          region: { nombre: { equals: region, mode: "insensitive" } },
+        },
+        include: { region: true },
+      });
+
+      if (!comuna) {
+        return res.status(400).json({
+          error: `La comuna '${comunaNombre}' no existe o no pertenece a la región '${region}'.`,
+        });
+      }
+
+      // --- Validar duplicidad dentro del mismo formulario ---
+      const clave = `${calle.toLowerCase()}-${comunaNombre.toLowerCase()}`;
+      if (combinaciones.has(clave)) {
+        return res.status(400).json({
+          error: `La dirección "${calle}, ${comunaNombre}" está duplicada en el formulario.`,
+        });
+      }
+      combinaciones.add(clave);
+
+      // --- Validar duplicidad con direcciones existentes en BD ---
+      const existente = await prisma.direccion.findFirst({
+        where: {
+          usuario_id: BigInt(userData.id),
+          calle: { equals: calle, mode: "insensitive" },
+          comuna: { nombre: { equals: comunaNombre, mode: "insensitive" } },
+        },
+        include: { comuna: true },
+      });
+
+      if (existente && (!dir.id || existente.id !== BigInt(dir.id))) {
+        return res.status(400).json({
+          error: `Ya tienes registrada una dirección igual: "${calle}, ${comunaNombre}".`,
+        });
+      }
+    }
+
+    // ===============================
+    // ✏️ 4️⃣ Actualizar datos personales
+    // ===============================
     await prisma.usuario.update({
       where: { id: BigInt(userData.id) },
       data: { nombre, apellido, telefono },
     });
 
-    if (Array.isArray(direcciones)) {
-      for (const dir of direcciones) {
-        // 🗑️ Si el usuario marcó una dirección para eliminar
-        if (dir._delete && dir.id) {
-          await prisma.direccion.delete({ where: { id: BigInt(dir.id) } });
-          continue;
-        }
+    // ===============================
+    // 🧱 5️⃣ Eliminar / Crear / Actualizar direcciones
+    // ===============================
 
-        // 🆕 Si no tiene id, se crea una nueva
-        if (!dir.id) {
-          const comuna = await prisma.comuna.findFirst({
-            where: { nombre: dir.comuna },
-            include: { region: true },
-          });
-          if (!comuna) continue;
-
-          await prisma.direccion.create({
-            data: {
-              calle: dir.calle,
-              usuario_id: BigInt(userData.id),
-              comuna_id: comuna.id,
-            },
-          });
-        } else {
-          // ✏️ Si tiene id, se actualiza
-          await prisma.direccion.update({
-            where: { id: BigInt(dir.id) },
-            data: {
-              calle: dir.calle,
-            },
-          });
-        }
+    // 1️⃣ Eliminar primero las direcciones marcadas con _delete
+    for (const dir of direcciones) {
+      if (dir._delete && dir.id) {
+        await prisma.direccion.delete({
+          where: { id: BigInt(dir.id) },
+        });
       }
     }
 
-    res.json({ message: "Perfil actualizado correctamente ✅" });
+    // 2️⃣ Luego crear o actualizar las restantes
+    for (const dir of direcciones) {
+      if (dir._delete) continue;
+
+      const comuna = await prisma.comuna.findFirst({
+        where: {
+          nombre: { equals: dir.comuna, mode: "insensitive" },
+          region: { nombre: { equals: dir.region, mode: "insensitive" } },
+        },
+        include: { region: true },
+      });
+      if (!comuna) continue;
+
+      if (!dir.id) {
+        await prisma.direccion.create({
+          data: {
+            calle: dir.calle.trim(),
+            usuario_id: BigInt(userData.id),
+            comuna_id: comuna.id,
+          },
+        });
+      } else {
+        await prisma.direccion.update({
+          where: { id: BigInt(dir.id) },
+          data: {
+            calle: dir.calle.trim(),
+            comuna_id: comuna.id,
+          },
+        });
+      }
+    }
+
+    // ===============================
+    // 🔁 6️⃣ Devolver usuario actualizado
+    // ===============================
+    const usuarioActualizado = await prisma.usuario.findUnique({
+      where: { id: BigInt(userData.id) },
+      include: {
+        rol: true,
+        direccion: {
+          include: { comuna: { include: { region: true } } },
+        },
+      },
+    });
+
+    res.json({
+      message: "Perfil actualizado correctamente ✅",
+      user: JSON.parse(
+        JSON.stringify(usuarioActualizado, (_, v) =>
+          typeof v === "bigint" ? v.toString() : v
+        )
+      ),
+    });
   } catch (err) {
     console.error("Error en PUT /profile:", err);
     res.status(500).json({ error: "Error al actualizar perfil" });
@@ -1238,8 +1393,762 @@ app.put("/profile", authMiddleware, async (req, res) => {
 
 
 
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// =======================================
+// 🧑‍💼 PANEL ADMIN — Gestión de usuarios 
+// =======================================
+
+// Middleware: solo Admin puede acceder
+async function verifyAdmin(req: Request, res: Response, next: any) {
+  try {
+    const token = req.cookies?.token;
+    if (!token) return res.status(401).json({ error: "No autorizado (sin token)" });
+
+    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+    const user = await prisma.usuario.findUnique({
+      where: { id: BigInt(decoded.id) },
+      include: { rol: true },
+    });
+
+    if (!user || user.rol.codigo !== "admin") {
+      return res.status(403).json({ error: "Solo los administradores pueden acceder" });
+    }
+
+    (req as any).user = user;
+    next();
+  } catch (err) {
+    console.error("Error en verifyAdmin:", err);
+    return res.status(403).json({ error: "Acceso denegado" });
+  }
+}
+
+//✅ listar usuario
+app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        telefono: true,
+        activo: true,
+        rol: {
+          select: {
+            id: true,
+            codigo: true,
+            nombre: true,
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    // Asegurar que BigInt no rompa JSON
+    const usuariosSafe = JSON.parse(
+      JSON.stringify(usuarios, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json(usuariosSafe);
+  } catch (err: any) {
+    console.error("❌ Error al listar usuarios:", err.message);
+    res.status(500).json({ error: "Error al listar usuarios" });
+  }
+});
 
 
+
+// ✅ Activar / desactivar usuario
+app.put("/admin/usuarios/:id/estado", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activo } = req.body;
+
+    await prisma.usuario.update({
+      where: { id: BigInt(id) },
+      data: { activo },
+    });
+
+    res.json({ message: `Usuario ${activo ? "activado" : "desactivado"} correctamente ✅` });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar estado:", err.message);
+    res.status(500).json({ error: "Error al actualizar estado" });
+  }
+});
+
+
+// ✅ Eliminar usuario
+app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.usuario.delete({ where: { id: BigInt(id) } });
+    res.json({ message: "Usuario eliminado correctamente 🗑️" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar usuario:", err.message);
+    res.status(500).json({ error: "Error al eliminar usuario" });
+  }
+});
+
+
+// ✅ Editar usuario (con validaciones completas)
+app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, apellido, email, telefono, rolCodigo } = req.body;
+
+    // 🧩 Validar que quien edita sea admin
+    const admin = (req as any).user;
+    if (!admin || admin.rol?.codigo !== "admin") {
+      return res.status(403).json({ error: "No autorizado: solo administradores." });
+    }
+
+    // 🧩 Validaciones de campos obligatorios
+    if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
+    if (!telefono?.trim())
+      return res.status(400).json({ error: "El teléfono es obligatorio (+569XXXXXXXX)." });
+
+    // 🧩 Validar formato de teléfono chileno
+    if (!telefono.match(/^\+569\d{8}$/)) {
+      return res.status(400).json({
+        error: "El teléfono debe tener formato válido: +569XXXXXXXX",
+      });
+    }
+
+    // 🧩 Validar formato de correo
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Correo electrónico no válido." });
+    }
+
+    // 🧩 Verificar que el usuario exista
+    const user = await prisma.usuario.findUnique({ where: { id: BigInt(id) } });
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado." });
+
+    // 🧩 Verificar duplicado de email (si cambió)
+    if (email !== user.email) {
+      const existing = await prisma.usuario.findUnique({ where: { email } });
+      if (existing)
+        return res.status(409).json({ error: "El correo electrónico ya está registrado." });
+    }
+
+    // 🧩 Validar que tenga rol válido
+    if (!rolCodigo?.trim()) {
+      return res.status(400).json({ error: "Debe seleccionar un rol para el usuario." });
+    }
+
+    const rol = await prisma.rol.findUnique({ where: { codigo: rolCodigo } });
+    if (!rol) {
+      return res.status(400).json({ error: `El rol '${rolCodigo}' no existe en el sistema.` });
+    }
+
+    // 🧩 Actualizar usuario
+    const usuarioActualizado = await prisma.usuario.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre,
+        apellido,
+        email,
+        telefono,
+        rol: { connect: { id: rol.id } },
+        fecha_actualizacion: new Date(),
+      },
+      include: { rol: true },
+    });
+
+    const safeUser = JSON.parse(
+      JSON.stringify(usuarioActualizado, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({
+      message: "✅ Usuario actualizado correctamente.",
+      usuario: safeUser,
+    });
+  } catch (err: any) {
+    console.error("❌ Error al editar usuario:", err.message);
+    res.status(500).json({ error: "Error al editar usuario." });
+  }
+});
+
+// =======================================
+
+// =======================================
+// 🔐 PANEL ADMIN — Gestión de Roles
+// =======================================
+
+// ✅ Crear nuevo rol
+app.post("/admin/roles", verifyAdmin, async (req, res) => {
+  try {
+    const { codigo, nombre } = req.body;
+
+    // Validaciones
+    if (!codigo?.trim() || !nombre?.trim()) {
+      return res.status(400).json({ error: "Debe ingresar código y nombre del rol." });
+    }
+
+    // Verificar duplicado
+    const existe = await prisma.rol.findUnique({ where: { codigo } });
+    if (existe) {
+      return res.status(400).json({ error: "Ese código de rol ya existe." });
+    }
+
+    // Crear rol
+    const nuevoRol = await prisma.rol.create({
+      data: { codigo: codigo.trim(), nombre: nombre.trim() },
+    });
+
+    // Evitar BigInt en JSON
+    const safeRol = JSON.parse(
+      JSON.stringify(nuevoRol, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({ message: "✅ Rol creado correctamente", rol: safeRol });
+  } catch (err: any) {
+    console.error("❌ Error al crear rol:", err.message);
+    res.status(500).json({ error: "Error al crear rol." });
+  }
+});
+
+// ✅ Listar roles con cantidad de usuarios asociados
+app.get("/admin/roles", verifyAdmin, async (_req, res) => {
+  try {
+    const roles = await prisma.rol.findMany({
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        _count: { select: { usuario: true } },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    const safeRoles = JSON.parse(
+      JSON.stringify(roles, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json(safeRoles);
+  } catch (err: any) {
+    console.error("❌ Error al listar roles:", err.message);
+    res.status(500).json({ error: "Error al listar roles." });
+  }
+});
+
+// ✅ Eliminar rol
+app.delete("/admin/roles/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Buscar el rol
+    const rol = await prisma.rol.findUnique({ where: { id: BigInt(id) } });
+    if (!rol) {
+      return res.status(404).json({ error: "Rol no encontrado." });
+    }
+
+    // Evitar eliminar el rol admin
+    if (rol.codigo === "admin") {
+      return res.status(400).json({ error: "No se puede eliminar el rol administrador." });
+    }
+
+    // Verificar si hay usuarios asignados
+    const usuariosAsociados = await prisma.usuario.findMany({
+      where: { rol_id: BigInt(id) },
+      select: { id: true },
+    });
+
+    if (usuariosAsociados.length > 0) {
+      return res.status(400).json({
+        error: "No se puede eliminar el rol porque está asignado a uno o más usuarios.",
+      });
+    }
+
+    // Eliminar rol
+    await prisma.rol.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "✅ Rol eliminado correctamente." });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar rol:", err.message);
+    res.status(500).json({ error: "Error al eliminar rol." });
+  }
+});
+
+// ✅ Actualizar rol
+app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { codigo, nombre } = req.body;
+
+    if (!codigo?.trim() || !nombre?.trim()) {
+      return res.status(400).json({ error: "Debe ingresar código y nombre del rol." });
+    }
+
+    const rol = await prisma.rol.findUnique({ where: { id: BigInt(id) } });
+    if (!rol) return res.status(404).json({ error: "Rol no encontrado." });
+
+    if (rol.codigo === "admin" && codigo !== "admin") {
+      return res.status(400).json({ error: "No se puede modificar el código del rol administrador." });
+    }
+
+    // Verificar si el nuevo código ya existe en otro rol
+    const duplicado = await prisma.rol.findFirst({
+      where: { codigo, NOT: { id: BigInt(id) } },
+    });
+    if (duplicado) {
+      return res.status(400).json({ error: "Ya existe otro rol con ese código." });
+    }
+
+    const rolActualizado = await prisma.rol.update({
+      where: { id: BigInt(id) },
+      data: { codigo: codigo.trim(), nombre: nombre.trim() },
+    });
+
+    const safeRol = JSON.parse(
+      JSON.stringify(rolActualizado, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    );
+
+    res.json({ message: "✅ Rol actualizado correctamente", rol: safeRol });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar rol:", err.message);
+    res.status(500).json({ error: "Error al actualizar rol." });
+  }
+});
+
+
+// =======================================
+// =======================================
+// 🧑‍💼 Crear cuenta de Usuario (Admin, Jardinero, Técnico, etc.)
+// =======================================
+app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { nombre, apellido, email, tipo } = req.body ?? {};
+
+    // 🔐 Solo admin puede crear
+    const admin = await prisma.usuario.findUnique({
+      where: { id: BigInt(userData.id) },
+      include: { rol: true },
+    });
+
+    if (!admin || admin.rol?.codigo !== "admin") {
+      return res.status(403).json({ error: "No autorizado: solo administradores." });
+    }
+
+    // 🧩 Validaciones
+    if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
+    if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return res.status(400).json({ error: "Correo electrónico no válido." });
+
+    // 🔎 Verificar duplicado
+    const existing = await prisma.usuario.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: "El correo ya está registrado." });
+
+    // 🎯 Buscar rol dinámicamente
+    const rol = await prisma.rol.findUnique({ where: { codigo: tipo } });
+    if (!rol) {
+      return res.status(400).json({ error: `El rol '${tipo}' no existe en la base de datos.` });
+    }
+
+    const rolNombre = rol.nombre || rol.codigo;
+
+    // 🧠 Generar contraseña automática
+    const base = email.substring(0, 3);
+    const password = `${base}1234`;
+    const contrasena_hash = await bcrypt.hash(password, 12);
+
+    // 🧱 Crear usuario inactivo
+    const nuevoUsuario = await prisma.usuario.create({
+      data: {
+        nombre,
+        apellido,
+        email,
+        contrasena_hash,
+        activo: false,
+        rol: { connect: { id: rol.id } },
+      },
+    });
+
+    // 🕒 Crear token de confirmación
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+    await prisma.confirm_token.create({
+      data: { userId: nuevoUsuario.id, token, expiresAt: expires },
+    });
+
+    // ✉️ Enviar correo de confirmación
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    const confirmLink = `${process.env.FRONTEND_URL}/admin/confirmar-usuario?token=${token}`;
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color:#333;">
+        <h2 style="color:#2E5430;">¡Bienvenido a Clean & Garden, ${nombre}!</h2>
+        <p>Tu cuenta de <b>${rolNombre}</b> ha sido creada por el administrador.</p>
+        <p>Para activarla, haz clic en el siguiente botón:</p>
+        <p><a href="${confirmLink}" style="background:#2E5430;color:white;padding:10px 15px;border-radius:5px;text-decoration:none;">Confirmar Cuenta</a></p>
+        <p><b>Importante:</b> el enlace expirará en 15 minutos.</p>
+        <p>🌿 Una vez confirmes, recibirás tus credenciales para iniciar sesión.</p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `Confirma tu cuenta de ${rolNombre} 🌿`,
+      html,
+    });
+
+    res.status(201).json({
+      message: `${rolNombre} creado. Se envió correo de confirmación.`,
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear usuario:", err);
+    res.status(500).json({ error: "Error al crear usuario", details: err.message });
+  }
+});
+
+
+// =======================================
+// ✉️ Confirmar cuenta de usuario (Admin o Jardinero)
+// =======================================
+app.get("/admin/confirmar-usuario/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const confirm = await prisma.confirm_token.findUnique({
+      where: { token },
+      include: { usuario: { include: { rol: true } } },
+    });
+
+    if (!confirm) return res.status(400).json({ error: "Token inválido o no encontrado." });
+    if (confirm.expiresAt < new Date()) {
+      await prisma.confirm_token.delete({ where: { id: confirm.id } });
+      return res.status(400).json({ error: "El token ha expirado." });
+    }
+
+    const user = await prisma.usuario.update({
+      where: { id: confirm.userId },
+      data: { activo: true },
+      include: { rol: true },
+    });
+
+    await prisma.confirm_token.delete({ where: { id: confirm.id } });
+
+    // ✉️ Enviar correo con credenciales
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color:#333;">
+        <h2 style="color:#2E5430;">¡Tu cuenta ya está activa, ${user.nombre}!</h2>
+        <p>Puedes iniciar sesión con las siguientes credenciales:</p>
+        <ul>
+          <li><b>Correo:</b> ${user.email}</li>
+          <li><b>Contraseña temporal:</b> ${user.email.substring(0,3)}1234</li>
+        </ul>
+        <p>🔐 Cambia tu contraseña al iniciar sesión.</p>
+        ${
+          user.rol.codigo === "jardinero"
+            ? "<p>📱 Recuerda agregar tu teléfono en <b>Mi Perfil</b>.</p>"
+            : ""
+        }
+        <p>🌿 Bienvenido al equipo de Clean & Garden.</p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: `Tu cuenta de ${user.rol.nombre} está activa ✅`,
+      html,
+    });
+
+    res.json({ message: "Cuenta confirmada y activada correctamente ✅" });
+  } catch (err: any) {
+    console.error("❌ Error al confirmar usuario:", err);
+    res.status(500).json({ error: "Error interno del servidor." });
+  }
+});
+
+// =======================================
+// 🧺 PANEL ADMIN — Gestión de Insumos (Productos)
+// =======================================
+
+app.get("/admin/insumos", verifyAdmin, async (_req, res) => {
+  try {
+    const insumos = await prisma.producto.findMany({
+      orderBy: { fecha_creacion: "desc" },
+    });
+
+    // Convertimos BigInt → Number para evitar errores en JSON
+    res.json(JSON.parse(JSON.stringify(insumos, (_, v) => (typeof v === "bigint" ? Number(v) : v))));
+  } catch (err: any) {
+    console.error("❌ Error al listar insumos:", err);
+    res.status(500).json({ error: "Error al listar insumos" });
+  }
+});
+
+// ✅ Crear insumo (el estado se define automáticamente según el stock)
+app.post("/admin/insumos", verifyAdmin, async (req, res) => {
+  try {
+    const { nombre, descripcion, precio_unitario, stock_actual } = req.body;
+
+    if (!nombre?.trim()) {
+      return res.status(400).json({ error: "El nombre del insumo es obligatorio" });
+    }
+
+    const existente = await prisma.producto.findUnique({ where: { nombre } });
+    if (existente) {
+      return res.status(409).json({ error: "Ya existe un insumo con ese nombre" });
+    }
+
+    const nuevo = await prisma.producto.create({
+      data: {
+        nombre: nombre.trim(),
+        descripcion: descripcion?.trim() || null,
+        precio_unitario: precio_unitario ? parseFloat(precio_unitario) : 0,
+        stock_actual: stock_actual ? parseInt(stock_actual) : 0,
+        activo: Number(stock_actual) > 0, // 🔁 Se define automáticamente
+      },
+    });
+
+    res.status(201).json({
+      message: "✅ Insumo creado correctamente",
+      insumo: JSON.parse(JSON.stringify(nuevo, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear insumo:", err.message);
+    res.status(500).json({ error: "Error al crear insumo" });
+  }
+});
+
+// ✅ Actualizar insumo (estado cambia automáticamente si cambia el stock)
+app.put("/admin/insumos/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, precio_unitario, stock_actual } = req.body;
+
+    const insumo = await prisma.producto.findUnique({ where: { id: BigInt(id) } });
+    if (!insumo) return res.status(404).json({ error: "Insumo no encontrado" });
+
+    // Aseguramos que siempre sea un número válido (>= 0)
+    const nuevoStock =
+      stock_actual !== undefined && stock_actual !== null
+        ? Number(stock_actual)
+        : Number(insumo.stock_actual) || 0;
+
+    const actualizado = await prisma.producto.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre?.trim() || insumo.nombre,
+        descripcion: descripcion?.trim() || insumo.descripcion,
+        precio_unitario: precio_unitario ? parseFloat(precio_unitario) : insumo.precio_unitario,
+        stock_actual: nuevoStock,
+        activo: Number(nuevoStock) > 0, // ✅ TypeScript ya no reclama
+        fecha_actualizacion: new Date(),
+      },
+    });
+
+
+    res.json({
+      message: "✅ Insumo actualizado correctamente",
+      insumo: JSON.parse(JSON.stringify(actualizado, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar insumo:", err.message);
+    res.status(500).json({ error: "Error al actualizar insumo" });
+  }
+});
+
+// ✅ Eliminar insumo
+app.delete("/admin/insumos/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const insumo = await prisma.producto.findUnique({ where: { id: BigInt(id) } });
+    if (!insumo) return res.status(404).json({ error: "Insumo no encontrado" });
+
+    await prisma.producto.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "🗑️ Insumo eliminado correctamente" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar insumo:", err.message);
+    res.status(500).json({ error: "Error al eliminar insumo" });
+  }
+});
+
+// =======================================
+// 🏡 PANEL ADMIN — Gestión de Direcciones y Jardines
+// =======================================
+
+// ✅ Listar todas las direcciones con cliente y jardines asociados
+app.get("/admin/direcciones", verifyAdmin, async (_req, res) => {
+  try {
+    const direcciones = await prisma.direccion.findMany({
+      include: {
+        usuario: {
+          select: { id: true, nombre: true, apellido: true, email: true },
+        },
+        comuna: {
+          include: { region: true },
+        },
+        jardin: {
+          select: {
+            id: true,
+            nombre: true,
+            activo: true,
+            area_m2: true,
+            tipo_suelo: true,
+            descripcion: true,
+            fecha_creacion: true,
+            fecha_actualizacion: true,
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    res.json(toJSONSafe(direcciones));
+  } catch (err: any) {
+    console.error("❌ Error al listar direcciones:", err);
+    res.status(500).json({ error: "Error al listar direcciones" });
+  }
+});
+
+// ✅ Crear jardín (con validaciones completas)
+app.post("/admin/jardines", verifyAdmin, async (req, res) => {
+  try {
+    const { cliente_id, direccion_id, nombre, area_m2, tipo_suelo, descripcion } = req.body;
+
+    // 🧩 Validaciones
+    const errors: Record<string, string> = {};
+
+    if (!cliente_id) errors.cliente_id = "El cliente es obligatorio";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim())
+      errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim())
+      errors.descripcion = "La descripción es obligatoria";
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    const jardin = await prisma.jardin.create({
+      data: {
+        cliente_id: BigInt(cliente_id),
+        direccion_id: BigInt(direccion_id),
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        activo: true,
+      },
+    });
+
+    res.status(201).json({
+      message: "✅ Jardín creado correctamente",
+      jardin: toJSONSafe(jardin),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear jardín:", err.message);
+    res.status(500).json({ error: "Error al crear jardín" });
+  }
+});
+
+// ✅ Editar jardín (con validaciones completas)
+app.put("/admin/jardines/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, area_m2, tipo_suelo, descripcion } = req.body;
+
+    // 🧩 Validaciones
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim())
+      errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim())
+      errors.descripcion = "La descripción es obligatoria";
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    const actualizado = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        fecha_actualizacion: new Date(),
+      },
+    });
+
+    res.json({
+      message: "✅ Jardín actualizado correctamente",
+      jardin: toJSONSafe(actualizado),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al editar jardín:", err);
+    res.status(500).json({ error: "Error al editar jardín" });
+  }
+});
+
+
+// ✅ Activar / Desactivar jardín
+app.put("/admin/jardines/:id/estado", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    const actualizado = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: { activo: !jardin.activo },
+    });
+
+    res.json({
+      message: `Jardín ${actualizado.activo ? "activado" : "desactivado"} correctamente ✅`,
+      jardin: toJSONSafe(actualizado),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al cambiar estado:", err);
+    res.status(500).json({ error: "Error al cambiar estado" });
+  }
+});
+
+// ✅ Eliminar jardín
+app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const jardin = await prisma.jardin.findUnique({ where: { id: BigInt(id) } });
+    if (!jardin) return res.status(404).json({ error: "Jardín no encontrado" });
+
+    await prisma.jardin.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "🗑️ Jardín eliminado correctamente" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar jardín:", err);
+    res.status(500).json({ error: "Error al eliminar jardín" });
+  }
+});
 
 
 

@@ -1,14 +1,13 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
+import Swal from "sweetalert2";
 
 export default function LoginPage() {
   const router = useRouter();
 
-  // 🎯 Estados del formulario
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -16,12 +15,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // 🔁 Ocultar el ícono del ojo si la contraseña queda vacía
   useEffect(() => {
     if (password === "") setShowPassword(false);
   }, [password]);
 
-  // 🚀 Enviar formulario
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -36,21 +33,49 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
-        credentials: "include", // ✅ Incluye cookie JWT si existe
+        credentials: "include",
       });
 
-      const data = await res.json().catch(() => ({}));
-      console.log("Respuesta del backend:", data);
+      const data = await res.json();
 
-      if (res.ok) {
-        setSuccess("✅ Login exitoso, redirigiendo...");
-        localStorage.setItem("isLoggedIn", "true");
-        window.dispatchEvent(new CustomEvent("session-change", { detail: "login" }));
-
-        // ⏳ Redirigir después de 1.5 segundos
-        setTimeout(() => router.push("/"), 1500);
-      } else {
+      // ❌ Si hubo error
+      if (!res.ok) {
         setError(`❌ ${data.error || "Credenciales inválidas"}`);
+        setLoading(false);
+        return;
+      }
+
+      // ✅ Guardar sesión local
+      if (data.user) {
+        const fullName = data.user.nombre?.trim() || data.user.email; // ← evita nulos
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("userId", data.user.id);
+        localStorage.setItem("userRole", data.user.rol);
+        localStorage.setItem("userName", fullName);
+        window.dispatchEvent(new CustomEvent("session-change", { detail: "login" }));
+      }
+
+      // ⚠️ Perfil incompleto → redirigir
+      if (data.warning && data.redirectTo === "profile") {
+        await Swal.fire({
+          icon: "warning",
+          title: "Perfil incompleto",
+          text: data.warning,
+          confirmButtonText: "Completar perfil",
+          confirmButtonColor: "#2E5430",
+          allowOutsideClick: false,
+        });
+        sessionStorage.setItem("cameFromIncompleteProfile", "true");
+        router.push("/profile");
+        return;
+      }
+
+      // ✅ Login exitoso normal
+      if (data.user) {
+        setSuccess("✅ Login exitoso, redirigiendo...");
+        setTimeout(() => {
+          router.push("/");
+        }, 1000);
       }
     } catch (err) {
       console.error("Error al conectar con backend:", err);
@@ -67,7 +92,6 @@ export default function LoginPage() {
           Iniciar sesión
         </h1>
 
-        {/* Alertas */}
         {error && (
           <div className="alert alert-error mb-4">
             <span>{error}</span>
@@ -80,7 +104,6 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Correo */}
           <div>
             <label className="block mb-1 text-sm font-medium text-gray-700">
               Correo electrónico
@@ -94,7 +117,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Contraseña */}
           <div>
             <label className="block mb-1 text-sm font-medium text-gray-700">
               Contraseña
@@ -119,14 +141,12 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Enlaces */}
           <div className="flex justify-between text-sm">
             <a href="/forgot-password" className="text-[#2E5430] hover:underline">
               ¿Olvidaste tu contraseña?
             </a>
           </div>
 
-          {/* Botón de ingreso */}
           <button
             type="submit"
             disabled={loading}
@@ -136,7 +156,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Registro */}
         <p className="mt-6 text-sm text-center text-gray-600">
           ¿No tienes una cuenta?{" "}
           <Link href="/register" className="font-medium text-[#2E5430] hover:underline">
