@@ -4,15 +4,44 @@ import { Trash2, Plus } from "lucide-react";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
+interface Direccion {
+  id?: number;
+  calle: string;
+  region: string;
+  comuna: string;
+  _new?: boolean;
+  _delete?: boolean;
+}
+
+interface User {
+  id: number;
+  nombre: string;
+  apellido: string;
+  email: string;
+  telefono: string;
+  direccion: Direccion[];
+  rol?: { codigo: string; nombre: string };
+}
+
+interface Region {
+  id: number;
+  nombre: string;
+}
+
+interface Comuna {
+  id: number;
+  nombre: string;
+}
+
 export default function PerfilUsuario() {
-  const [user, setUser] = useState<any>(null);
-  const [backupUser, setBackupUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [backupUser, setBackupUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  const [regiones, setRegiones] = useState<any[]>([]);
-  const [comunasPorRegion, setComunasPorRegion] = useState<Record<number, any[]>>({});
+  const [regiones, setRegiones] = useState<Region[]>([]);
+  const [comunasPorRegion, setComunasPorRegion] = useState<Record<number, Comuna[]>>({});
 
   const router = useRouter();
 
@@ -74,19 +103,21 @@ export default function PerfilUsuario() {
 
   // ➕ Agregar dirección
   const addDireccion = () => {
+    if (!user) return;
     setUser({
       ...user,
       direccion: [
-        ...(user?.direccion || []),
+        ...(user.direccion || []),
         { calle: "", region: "", comuna: "", _new: true },
       ],
     });
   };
 
   // 🔄 Cambiar valores
-  const handleDireccionChange = (index: number, field: string, value: string) => {
+  const handleDireccionChange = (index: number, field: keyof Direccion, value: string) => {
+    if (!user) return;
     const updated = [...user.direccion];
-    updated[index][field] = value;
+    updated[index] = { ...updated[index], [field]: value };
     setUser({ ...user, direccion: updated });
   };
 
@@ -115,7 +146,7 @@ export default function PerfilUsuario() {
     const telefono = (user?.telefono ?? "").trim();
 
     if (!nombre || !apellido || !telefono) {
-      let camposFaltantes: string[] = [];
+      const camposFaltantes: string[] = [];
       if (!nombre) camposFaltantes.push("nombre");
       if (!apellido) camposFaltantes.push("apellido");
       if (!telefono) camposFaltantes.push("teléfono");
@@ -139,7 +170,8 @@ export default function PerfilUsuario() {
     }
 
     // Validar direcciones
-    const direccionesActivas = user.direccion.filter((d: any) => !d._delete);
+    if (!user) return false;
+    const direccionesActivas = user.direccion.filter((d) => !d._delete);
     if (direccionesActivas.length === 0) {
       Swal.fire({
         icon: "warning",
@@ -170,7 +202,7 @@ export default function PerfilUsuario() {
 
   // 💾 Guardar cambios
   const handleSave = async () => {
-  if (!validateForm()) return;
+  if (!validateForm() || !user) return;
   setSaving(true);
   try {
     const res = await fetch("http://localhost:3001/profile", {
@@ -284,7 +316,7 @@ export default function PerfilUsuario() {
               <h2 className="text-lg font-semibold text-[#2E5430] mb-2">Direcciones</h2>
               {user.direccion?.length ? (
                 <ul className="space-y-3">
-                  {user.direccion.map((dir: any, i: number) => (
+                  {user.direccion.map((dir, i) => (
                     <li key={i} className="border border-gray-300 rounded-md p-3 bg-gray-50">
                       <p className="font-medium text-gray-800">{dir.calle}</p>
                       <p className="text-sm text-gray-600">
@@ -367,8 +399,8 @@ export default function PerfilUsuario() {
               </div>
 
               {user.direccion
-                ?.filter((d: any) => !d._delete)
-                .map((dir: any, index: number) => {
+                ?.filter((d) => !d._delete)
+                .map((dir, index) => {
                   const regionObj = regiones.find((r) => r.nombre === dir.region);
                   const regionId = regionObj?.id;
                   if (regionId) fetchComunas(regionId);

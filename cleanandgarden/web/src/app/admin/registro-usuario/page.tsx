@@ -2,6 +2,12 @@
 import { useState, useEffect } from "react";
 import Swal from "sweetalert2";
 
+interface Rol {
+  id: number;
+  codigo: string;
+  nombre: string;
+}
+
 export default function CrearUsuarioPage() {
   const [form, setForm] = useState({
     nombre: "",
@@ -10,7 +16,7 @@ export default function CrearUsuarioPage() {
     tipo: "",
   });
 
-  const [roles, setRoles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<Rol[]>([]);
   const [mensaje, setMensaje] = useState("");
   const [tipoMensaje, setTipoMensaje] = useState<"success" | "error" | "">("");
   const [loading, setLoading] = useState(false);
@@ -26,7 +32,7 @@ export default function CrearUsuarioPage() {
         if (!res.ok) throw new Error(data.error || "Error al obtener roles");
 
         // 👇 Opcional: filtra si no quieres mostrar el rol 'cliente'
-        const filtered = data.filter((r: any) => r.codigo !== "cliente");
+        const filtered = data.filter((r: Rol) => r.codigo !== "cliente");
 
         setRoles(filtered);
 
@@ -40,6 +46,7 @@ export default function CrearUsuarioPage() {
       }
     };
     fetchRoles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

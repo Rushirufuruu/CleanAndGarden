@@ -4,8 +4,34 @@ import { useEffect, useState, useRef } from "react";
 import Swal from "sweetalert2";
 import { Plus, Edit2, Power, Trash2, Home } from "lucide-react";
 
+interface Jardin {
+  id: number;
+  nombre: string;
+  area_m2?: number;
+  tipo_suelo?: string;
+  descripcion?: string;
+  activo: boolean;
+}
+
+interface Direccion {
+  id: number;
+  calle: string;
+  comuna: { 
+    nombre: string;
+    region?: { nombre: string };
+  };
+  cliente_id: number;
+  usuario?: {
+    id: number;
+    nombre: string;
+    apellido: string;
+    email: string;
+  };
+  jardin: Jardin[];
+}
+
 export default function GestionDireccionesJardines() {
-  const [direcciones, setDirecciones] = useState<any[]>([]);
+  const [direcciones, setDirecciones] = useState<Direccion[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     cliente_id: "",
@@ -42,13 +68,13 @@ export default function GestionDireccionesJardines() {
   }, []);
 
   // ✏️ Editar jardín
-  const handleEdit = (jardin: any, direccion_id: number, cliente_id: number) => {
+  const handleEdit = (jardin: Jardin, direccion_id: number, cliente_id: number) => {
     setEditId(jardin.id);
     setForm({
       cliente_id: cliente_id.toString(),
       direccion_id: direccion_id.toString(),
       nombre: jardin.nombre,
-      area_m2: jardin.area_m2 || "",
+      area_m2: jardin.area_m2?.toString() || "",
       tipo_suelo: jardin.tipo_suelo || "",
       descripcion: jardin.descripcion || "",
     });
@@ -350,7 +376,7 @@ export default function GestionDireccionesJardines() {
                   <button
                     onClick={() => {
                       setForm({
-                        cliente_id: dir.usuario.id.toString(),
+                        cliente_id: dir.usuario?.id.toString() || "",
                         direccion_id: dir.id.toString(),
                         nombre: "",
                         area_m2: "",
@@ -408,7 +434,7 @@ export default function GestionDireccionesJardines() {
                           </td>
                           <td className="p-2 flex justify-center gap-3">
                             <button
-                              onClick={() => handleEdit(j, dir.id, dir.usuario.id)}
+                              onClick={() => handleEdit(j, dir.id, dir.usuario?.id || 0)}
                               title="Editar"
                               className="text-blue-700 hover:text-blue-900"
                             >

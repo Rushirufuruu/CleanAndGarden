@@ -726,14 +726,7 @@ app.post("/usuario", async (req, res) => {
     // ===== Crear usuario (inactivo) con rol cliente =====
     const contrasena_hash = await bcrypt.hash(password, 12);
     
-    // Buscar el rol de cliente por defecto
-    const rolCliente = await prisma.rol.findFirst({
-      where: { codigo: 'cliente' }
-    });
-    
-    if (!rolCliente) {
-      return res.status(500).json({ error: 'Rol de cliente no encontrado en la base de datos' });
-    }
+    // (Ya se buscó el rol 'cliente' arriba con findUnique)
 
     const nuevoUsuario = await prisma.usuario.create({
       data: {
