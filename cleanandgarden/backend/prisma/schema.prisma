@@ -331,10 +331,11 @@ model portafolio_item {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model rol {
-  id      BigInt    @id @default(autoincrement())
-  codigo  String    @unique @db.VarChar(20)
-  nombre  String    @db.VarChar(50)
-  usuario usuario[]
+  id                      BigInt    @id @default(autoincrement())
+  codigo                  String    @unique @db.VarChar(20)
+  nombre                  String    @db.VarChar(50)
+  disponibilidad_servicio Boolean?  @default(false)
+  usuario                 usuario[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -372,6 +373,7 @@ model usuario {
   direccion                                   direccion[]
   disponibilidad                              disponibilidad[]
   disponibilidad_excepcion                    disponibilidad_excepcion[]
+  disponibilidad_mensual                      disponibilidad_mensual[]
   dispositivo                                 dispositivo[]
   evento_cita                                 evento_cita[]
   imagen                                      imagen[]
@@ -469,6 +471,21 @@ model visita_producto {
   fecha_registro DateTime @default(now()) @db.Timestamptz(6)
   producto       producto @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   visita         visita   @relation(fields: [visita_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model disponibilidad_mensual {
+  id             BigInt   @id @default(autoincrement())
+  tecnico_id     BigInt
+  fecha          DateTime @db.Date
+  hora_inicio    DateTime @db.Timestamptz(6)
+  hora_fin       DateTime @db.Timestamptz(6)
+  cupos_totales  Int      @default(1)
+  cupos_ocupados Int      @default(0)
+  fecha_creacion DateTime @default(now()) @db.Timestamptz(6)
+  usuario        usuario  @relation(fields: [tecnico_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_disponibilidad_mensual_usuario")
+
+  @@unique([tecnico_id, fecha, hora_inicio], map: "disponibilidad_mensual_unica")
+  @@index([fecha], map: "idx_disponibilidad_mensual_fecha")
 }
 
 enum estado_cita {

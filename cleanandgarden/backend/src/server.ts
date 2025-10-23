@@ -20,6 +20,8 @@ import { Request, Response } from "express";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 
+
+
 // Creamos la app de Express (hay que pensarlo como el "router" principal de la API)
 const app = express()
 // Habilita CORS: permite que el front pueda llamar a la api
@@ -1317,7 +1319,7 @@ app.post("/admin/roles", verifyAdmin, async (req, res) => {
   }
 });
 
-// ✅ Listar roles con cantidad de usuarios asociados
+// ✅ Listar todos los roles (con disponibilidad de servicio)
 app.get("/admin/roles", verifyAdmin, async (_req, res) => {
   try {
     const roles = await prisma.rol.findMany({
@@ -1325,21 +1327,23 @@ app.get("/admin/roles", verifyAdmin, async (_req, res) => {
         id: true,
         codigo: true,
         nombre: true,
+        disponibilidad_servicio: true, // 👈 nuevo campo visible en frontend
         _count: { select: { usuario: true } },
       },
       orderBy: { id: "asc" },
     });
 
-    const safeRoles = JSON.parse(
-      JSON.stringify(roles, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+    res.json(
+      JSON.parse(
+        JSON.stringify(roles, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+      )
     );
-
-    res.json(safeRoles);
   } catch (err: any) {
     console.error("❌ Error al listar roles:", err.message);
     res.status(500).json({ error: "Error al listar roles." });
   }
 });
+
 
 // ✅ Eliminar rol
 app.delete("/admin/roles/:id", verifyAdmin, async (req, res) => {
@@ -1419,6 +1423,59 @@ app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
     res.status(500).json({ error: "Error al actualizar rol." });
   }
 });
+
+
+// ✅ Actualizar el campo disponibilidad_servicio (true/false)
+app.put("/admin/roles/:id/disponibilidad", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { disponibilidad_servicio } = req.body;
+
+    if (typeof disponibilidad_servicio !== "boolean") {
+      return res.status(400).json({
+        error: "El campo 'disponibilidad_servicio' debe ser booleano (true o false).",
+      });
+    }
+
+    const rol = await prisma.rol.findUnique({ where: { id: BigInt(id) } });
+    if (!rol) return res.status(404).json({ error: "Rol no encontrado." });
+
+    // 🔒 BLOQUEO: estos roles nunca pueden tener disponibilidad
+    const rolesBloqueados = ["admin", "cliente"];
+    if (rolesBloqueados.includes(rol.codigo)) {
+      if (disponibilidad_servicio === true) {
+        return res.status(400).json({
+          error: `El rol '${rol.codigo}' no puede tener disponibilidad de servicio.`,
+        });
+      }
+      // Fuerza a false aunque intenten manipular
+      const actualizado = await prisma.rol.update({
+        where: { id: BigInt(id) },
+        data: { disponibilidad_servicio: false },
+      });
+      return res.json({
+        message: `✅ Rol '${rol.nombre}' queda con disponibilidad_servicio = false`,
+        rol: JSON.parse(JSON.stringify(actualizado, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+      });
+    }
+
+    // ✅ Para el resto de roles, permite cambiar libremente
+    const actualizado = await prisma.rol.update({
+      where: { id: BigInt(id) },
+      data: { disponibilidad_servicio },
+    });
+
+    res.json({
+      message: `✅ Rol '${rol.nombre}' actualizado: disponibilidad_servicio = ${disponibilidad_servicio}`,
+      rol: JSON.parse(JSON.stringify(actualizado, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al actualizar disponibilidad_servicio:", err);
+    res.status(500).json({ error: "Error al actualizar disponibilidad del rol." });
+  }
+});
+
+
 
 
 // =======================================
@@ -1857,9 +1914,334 @@ app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
 });
 
 
+// =======================================
+// 🗓️ PANEL ADMIN — Gestión de Disponibilidad mensual
+// =======================================
+
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+dayjs.extend(isSameOrBefore);
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.tz.setDefault("America/Santiago");
+// ✅ Convierte una fecha en formato YYYY-MM-DD a Date local (sin UTC shift)
+function toLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0, 0); // 👈 12:00 local evita desfases por zona horaria
+}
+
+// ✅ Convierte una fecha (Date o string) al formato YYYY-MM-DD (PostgreSQL-friendly)
+function toPgDateLocal(date: Date | string): string {
+  const d = dayjs(date).tz("America/Santiago");
+  return d.format("YYYY-MM-DD");
+}
+
+
+// =======================================
+// 👷‍♂️ Listar usuarios con disponibilidad de servicio activa
+// =======================================
+app.get("/admin/disponibilidad/usuarios", verifyAdmin, async (req, res) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        rol: {
+          disponibilidad_servicio: true, // 👈 filtra por roles que tengan este flag
+        },
+      },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        rol: {
+          select: {
+            id: true,
+            codigo: true,
+            nombre: true,
+            disponibilidad_servicio: true,
+          },
+        },
+      },
+      orderBy: { nombre: "asc" },
+    });
+
+    // ✅ Convierte BigInt → Number antes de enviar (para evitar error de serialización)
+    res.json(
+      JSON.parse(
+        JSON.stringify(usuarios, (_, v) => (typeof v === "bigint" ? Number(v) : v))
+      )
+    );
+  } catch (err) {
+    console.error("❌ Error al listar usuarios con disponibilidad:", err);
+    res.status(500).json({ error: "Error al listar usuarios con disponibilidad" });
+  }
+});
 
 
 
+//  POST generar disponibilidad mensual
+const fetch = globalThis.fetch;
+
+// =======================================
+// 🗓️ PANEL ADMIN — Generar disponibilidad mensual (versión final verificada)
+// =======================================
+// =======================================
+// 🗓️ Generación de disponibilidad mensual (bloquea solo feriados irrenunciables)
+// =======================================
+// =======================================
+// 🗓️ Generar disponibilidad mensual — bloquea automáticamente feriados irrenunciables
+// =======================================
+// =======================================
+// 🗓️ PANEL ADMIN — Generar disponibilidad mensual (versión final)
+// =======================================
+
+
+app.post("/admin/disponibilidad-mensual/generar", verifyAdmin, async (req, res) => {
+  try {
+    const { periodo, jornada, reglas, trabajadores, cuposPorSlot, modo } = req.body;
+    const tz = "America/Santiago";
+
+    if (!periodo?.desde || !periodo?.hasta) {
+      return res.status(400).json({ error: "Faltan fechas de inicio o fin." });
+    }
+
+    const desde = dayjs.tz(`${periodo.desde}T00:00:00`, tz);
+    const hasta = dayjs.tz(`${periodo.hasta}T00:00:00`, tz);
+    const hoy = dayjs.tz(new Date(), tz).startOf("day");
+
+    if (desde.isBefore(hoy)) {
+      return res
+        .status(400)
+        .json({ error: "No se pueden crear horarios con fechas anteriores a hoy." });
+    }
+
+    const diasActivos = reglas?.diasSemana ?? [1, 2, 3, 4, 5]; // lunes a viernes
+    const duracionMin = reglas?.duracionMin ?? 60;
+    const descansoMin = reglas?.descansoMin ?? 30;
+    const horaInicioBase = jornada.horaInicio;
+    const horaFinBase = jornada.horaFin;
+
+    // === 🧮 Generar horarios ===
+    const diasGenerados: any[] = [];
+
+    for (
+      let actual = desde.clone();
+      actual.isSameOrBefore(hasta, "day");
+      actual = actual.add(1, "day")
+    ) {
+      const dow = actual.day(); // 0=Dom, 1=Lun, 2=Mar, ...
+      const fechaStr = actual.tz(tz).format("YYYY-MM-DD");
+
+      // ✅ Solo crear en días seleccionados por el admin
+      if (!diasActivos.includes(dow)) continue;
+
+      // ✅ Generar horarios para cada trabajador
+      for (const tId of trabajadores) {
+        const inicio = dayjs.tz(`${fechaStr}T${horaInicioBase}:00`, tz);
+        const fin = dayjs.tz(`${fechaStr}T${horaFinBase}:00`, tz);
+        let actualInicio = inicio.clone();
+
+        while (actualInicio.isBefore(fin)) {
+          const actualFin = actualInicio.add(duracionMin, "minute");
+          if (actualFin.isAfter(fin)) break;
+
+          diasGenerados.push({
+            tecnico_id: Number(tId),
+            fecha: actual.toDate(),
+            hora_inicio: actualInicio.toDate(),
+            hora_fin: actualFin.toDate(),
+            cupos_totales: cuposPorSlot ?? 1,
+            cupos_ocupados: 0,
+          });
+
+          actualInicio = actualFin.add(descansoMin, "minute");
+        }
+      }
+    }
+
+    // === Vista previa ===
+    if (modo === "preview") {
+      return res.json({
+        data: diasGenerados,
+        message: `Vista previa generada: ${diasGenerados.length} slots.`,
+      });
+    }
+
+    // === Reemplazo (borra horarios del mes si corresponde) ===
+    if (modo === "replace") {
+      await prisma.disponibilidad_mensual.deleteMany({
+        where: {
+          fecha: {
+            gte: new Date(desde.year(), desde.month(), 1),
+            lte: new Date(desde.year(), desde.month() + 1, 0, 23, 59, 59),
+          },
+        },
+      });
+    }
+
+    // === Guardar evitando duplicados ===
+    const existentes = await prisma.disponibilidad_mensual.findMany({
+      where: {
+        OR: diasGenerados.map((d) => ({
+          tecnico_id: BigInt(d.tecnico_id),
+          fecha: d.fecha,
+          hora_inicio: d.hora_inicio,
+        })),
+      },
+      select: { tecnico_id: true, fecha: true, hora_inicio: true },
+    });
+
+    const existentesSet = new Set(
+      existentes.map(
+        (x) =>
+          `${String(x.tecnico_id)}|${dayjs(x.fecha).format("YYYY-MM-DD")}|${dayjs(
+            x.hora_inicio
+          ).format("HH:mm")}`
+      )
+    );
+
+    const nuevos = diasGenerados.filter(
+      (d) =>
+        !existentesSet.has(
+          `${String(d.tecnico_id)}|${dayjs(d.fecha).format("YYYY-MM-DD")}|${dayjs(
+            d.hora_inicio
+          ).format("HH:mm")}`
+        )
+    );
+
+    const result =
+      nuevos.length > 0
+        ? await prisma.disponibilidad_mensual.createMany({ data: nuevos })
+        : { count: 0 };
+
+    res.json({
+      message: `✅ Se generaron ${result.count} horarios.`,
+    });
+  } catch (err) {
+    console.error("❌ Error al generar disponibilidad:", err);
+    res.status(500).json({ error: "Error interno al generar disponibilidad" });
+  }
+});
+
+
+
+
+
+// listar en calendario disponibilidad mensual
+app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
+  try {
+    const { mes, usuarioId, desde, hasta } = req.query;
+    let rangoDesde: string;
+    let rangoHasta: string;
+
+    if (mes) {
+      const [y, m] = String(mes).split("-").map(Number);
+      const firstLocal = new Date(y, m - 1, 1);
+      const lastLocal = new Date(y, m, 0);
+      rangoDesde = toPgDateLocal(firstLocal);
+      rangoHasta = toPgDateLocal(lastLocal);
+    } else if (desde && hasta) {
+      rangoDesde = toPgDateLocal(desde as string);
+      rangoHasta = toPgDateLocal(hasta as string);
+    } else {
+      const now = new Date();
+      const firstLocal = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      rangoDesde = toPgDateLocal(firstLocal);
+      rangoHasta = toPgDateLocal(lastLocal);
+    }
+
+    const filtro: any = { fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) } };
+    if (usuarioId) filtro.tecnico_id = BigInt(String(usuarioId));
+
+    const disponibilidad = await prisma.disponibilidad_mensual.findMany({
+      where: filtro,
+      orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
+      include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
+    });
+
+    // Convierte BigInt → Number antes de devolver
+    res.json({
+      data: JSON.parse(
+        JSON.stringify(disponibilidad, (_, v) => (typeof v === "bigint" ? Number(v) : v))
+      ),
+    });
+  } catch (err) {
+    console.error("❌ Error al listar disponibilidad mensual:", err);
+    res.status(500).json({ error: "Error al listar disponibilidad mensual" });
+  }
+});
+
+
+
+//  eliminar mes actual 
+app.delete("/admin/disponibilidad-mensual/eliminar-mes", verifyAdmin, async (req, res) => {
+  const { mes } = req.query as { mes: string };
+  if (!mes) return res.status(400).json({ error: "Falta parámetro mes" });
+
+  const [year, month] = mes.split("-").map(Number);
+  const desde = new Date(year, month - 1, 1);
+  const hasta = new Date(year, month, 0, 23, 59, 59);
+
+  try {
+    const eliminados = await prisma.disponibilidad_mensual.deleteMany({
+      where: { fecha: { gte: desde, lte: hasta } },
+    });
+
+    return res.json({ message: `Se eliminaron ${eliminados.count} horarios` });
+  } catch (err) {
+    console.error("Error al eliminar mes:", err);
+    return res.status(500).json({ error: "Error interno al eliminar el mes" });
+  }
+});
+
+
+
+//  eliminar horario individual
+app.delete("/admin/disponibilidad-mensual/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.disponibilidad_mensual.delete({ where: { id: BigInt(id) } });
+    res.json({ message: "🗑️ Slot eliminado correctamente" });
+  } catch (err) {
+    console.error("❌ Error al eliminar slot:", err);
+    res.status(500).json({ error: "Error al eliminar slot" });
+  }
+});
+
+
+//  modificar horario individual
+app.put("/admin/disponibilidad-mensual/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cupos_totales, hora_inicio, hora_fin } = req.body;
+
+    // construye objeto dinámico solo con los campos enviados
+    const data: any = {};
+    if (cupos_totales !== undefined) data.cupos_totales = Number(cupos_totales);
+    if (hora_inicio) data.hora_inicio = new Date(hora_inicio);
+    if (hora_fin) data.hora_fin = new Date(hora_fin);
+
+    const actualizado = await prisma.disponibilidad_mensual.update({
+      where: { id: BigInt(id) },
+      data,
+    });
+
+    res.json({
+      message: "✅ Slot actualizado correctamente",
+      slot: toJSONSafe(actualizado), // 👈 convierte BigInt a Number antes de enviar
+    });
+  } catch (err) {
+    console.error("❌ Error al actualizar slot:", err);
+    res.status(500).json({ error: "Error al actualizar slot." });
+  }
+});
+
+
+
+
+//====================================================================================================
 // Verificar variables de entorno al inicio
 console.log("🔧 Verificando configuración...");
 console.log("📧 EMAIL_USER:", process.env.EMAIL_USER ? "✅ Configurado" : "❌ Falta");
