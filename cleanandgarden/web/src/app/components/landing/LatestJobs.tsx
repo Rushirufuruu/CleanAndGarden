@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 
 const trabajos = [
   {
@@ -41,9 +42,11 @@ export default function LatestJobs() {
           {trabajos.map((t) => (
             <div key={t.id} className="card bg-base-100 shadow-md rounded-2xl w-full">
               <figure>
-                <img
+                <Image
                   src={t.imagen}
                   alt={t.titulo}
+                  width={400}
+                  height={240}
                   className="h-48 w-full object-cover"
                 />
               </figure>

@@ -370,6 +370,290 @@ app.get('/servicios', async (req, res) => {
   }
 });
 
+// Obtener todos los servicios para admin (incluye inactivos)
+app.get('/admin/servicios', async (req, res) => {
+  try {
+    const servicios = await prisma.servicio.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        descripcion: true,
+        duracion_minutos: true,
+        precio_clp: true,
+        activo: true,
+        fecha_creacion: true,
+        fecha_actualizacion: true,
+        imagen: {
+          select: {
+            url_publica: true,
+            clave_storage: true
+          }
+        }
+      },
+      orderBy: { 
+        nombre: 'asc' 
+      }
+    });
+
+    // Formatear datos para el admin
+    const serviciosFormatted = servicios.map(servicio => ({
+      id: Number(servicio.id),
+      nombre: servicio.nombre,
+      descripcion: servicio.descripcion || '',
+      duracion: servicio.duracion_minutos || 0,
+      precio: servicio.precio_clp ? Number(servicio.precio_clp) : 0,
+      activo: servicio.activo,
+      fechaCreacion: servicio.fecha_creacion,
+      fechaActualizacion: servicio.fecha_actualizacion,
+      imagenUrl: servicio.imagen?.url_publica || null
+    }));
+
+    res.json(toJSONSafe(serviciosFormatted));
+  } catch (err: any) {
+    console.error("❌ Error al obtener servicios admin:", err);
+    res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
+  }
+});
+
+// Crear nuevo servicio (admin)
+app.post('/admin/servicios', async (req, res) => {
+  try {
+    const { nombre, descripcion, duracion_minutos, precio_clp, imagen_url, activo } = req.body;
+
+    // Validaciones básicas
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre del servicio es requerido' });
+    }
+
+    if (!duracion_minutos || duracion_minutos <= 0) {
+      return res.status(400).json({ error: 'La duración debe ser mayor a 0' });
+    }
+
+    if (!precio_clp || precio_clp <= 0) {
+      return res.status(400).json({ error: 'El precio debe ser mayor a 0' });
+    }
+
+    // Verificar si ya existe un servicio con el mismo nombre
+    const servicioExistente = await prisma.servicio.findUnique({
+      where: { nombre: nombre.trim() }
+    });
+
+    if (servicioExistente) {
+      return res.status(400).json({ error: 'Ya existe un servicio con ese nombre' });
+    }
+
+    // Crear el servicio
+    let imagen_id = null;
+    
+    // Si hay URL de imagen, crear registro en tabla imagen
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          tipo: 'servicio',
+          clave_storage: `servicios/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg' // Asumimos JPEG por defecto
+        }
+      });
+      imagen_id = nuevaImagen.id;
+    }
+
+    const nuevoServicio = await prisma.servicio.create({
+      data: {
+        nombre: nombre.trim(),
+        descripcion: descripcion?.trim() || null,
+        duracion_minutos: parseInt(duracion_minutos),
+        precio_clp: parseFloat(precio_clp),
+        imagen_id: imagen_id, // Asociar imagen si existe
+        activo: activo !== false // por defecto true
+      }
+    });
+
+    console.log("✅ Servicio creado:", nuevoServicio.nombre);
+
+    res.status(201).json({
+      message: 'Servicio creado exitosamente',
+      servicio: {
+        id: Number(nuevoServicio.id),
+        nombre: nuevoServicio.nombre,
+        descripcion: nuevoServicio.descripcion,
+        duracion: nuevoServicio.duracion_minutos,
+        precio: Number(nuevoServicio.precio_clp),
+        activo: nuevoServicio.activo
+      }
+    });
+
+  } catch (err: any) {
+    console.error("❌ Error al crear servicio:", err);
+    res.status(500).json({ error: err.message ?? 'Error al crear el servicio' });
+  }
+});
+
+// Eliminar servicio (admin)
+app.delete('/admin/servicios/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validar que el ID sea un número válido
+    const servicioId = parseInt(id);
+    if (isNaN(servicioId)) {
+      return res.status(400).json({ error: 'ID de servicio inválido' });
+    }
+
+    // Verificar que el servicio exista
+    const servicioExistente = await prisma.servicio.findUnique({
+      where: { id: servicioId },
+      include: { imagen: true }
+    });
+
+    if (!servicioExistente) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    // Si el servicio tiene imagen asociada, también eliminarla
+    if (servicioExistente.imagen_id) {
+      await prisma.imagen.delete({
+        where: { id: servicioExistente.imagen_id }
+      });
+    }
+
+    // Eliminar el servicio
+    await prisma.servicio.delete({
+      where: { id: servicioId }
+    });
+
+    console.log(`✅ Servicio eliminado: ${servicioExistente.nombre} (ID: ${servicioId})`);
+
+    res.json({
+      message: 'Servicio eliminado exitosamente',
+      servicio: {
+        id: servicioId,
+        nombre: servicioExistente.nombre
+      }
+    });
+
+  } catch (err: any) {
+    console.error("❌ Error al eliminar servicio:", err);
+    res.status(500).json({ error: err.message ?? 'Error al eliminar el servicio' });
+  }
+});
+
+// Actualizar servicio (admin)
+app.put('/admin/servicios/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, duracion_minutos, precio_clp, imagen_url, activo } = req.body;
+
+    // Validar que el ID sea un número válido
+    const servicioId = parseInt(id);
+    if (isNaN(servicioId)) {
+      return res.status(400).json({ error: 'ID de servicio inválido' });
+    }
+
+    // Validaciones básicas
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre del servicio es requerido' });
+    }
+
+    if (!duracion_minutos || duracion_minutos <= 0) {
+      return res.status(400).json({ error: 'La duración debe ser mayor a 0' });
+    }
+
+    if (!precio_clp || precio_clp <= 0) {
+      return res.status(400).json({ error: 'El precio debe ser mayor a 0' });
+    }
+
+    // Verificar que el servicio exista
+    const servicioExistente = await prisma.servicio.findUnique({
+      where: { id: servicioId },
+      include: { imagen: true }
+    });
+
+    if (!servicioExistente) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    // Verificar si ya existe otro servicio con el mismo nombre (excluyendo el actual)
+    const servicioConMismoNombre = await prisma.servicio.findFirst({
+      where: { 
+        nombre: nombre.trim(),
+        id: { not: servicioId }
+      }
+    });
+
+    if (servicioConMismoNombre) {
+      return res.status(400).json({ error: 'Ya existe otro servicio con ese nombre' });
+    }
+
+    // Manejar imagen
+    let imagen_id = servicioExistente.imagen_id;
+    
+    // Si hay nueva URL de imagen, actualizar o crear registro
+    if (imagen_url && imagen_url !== servicioExistente.imagen?.url_publica) {
+      // Si ya tenía una imagen, actualizarla
+      if (servicioExistente.imagen_id) {
+        await prisma.imagen.update({
+          where: { id: servicioExistente.imagen_id },
+          data: {
+            url_publica: imagen_url,
+            clave_storage: `servicios/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          }
+        });
+      } else {
+        // Si no tenía imagen, crear una nueva
+        const nuevaImagen = await prisma.imagen.create({
+          data: {
+            tipo: 'servicio',
+            clave_storage: `servicios/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+            url_publica: imagen_url,
+            tipo_contenido: 'image/jpeg'
+          }
+        });
+        imagen_id = nuevaImagen.id;
+      }
+    } else if (!imagen_url && servicioExistente.imagen_id) {
+      // Si se eliminó la imagen, eliminar el registro
+      await prisma.imagen.delete({
+        where: { id: servicioExistente.imagen_id }
+      });
+      imagen_id = null;
+    }
+
+    // Actualizar el servicio
+    const servicioActualizado = await prisma.servicio.update({
+      where: { id: servicioId },
+      data: {
+        nombre: nombre.trim(),
+        descripcion: descripcion?.trim() || null,
+        duracion_minutos: parseInt(duracion_minutos),
+        precio_clp: parseFloat(precio_clp),
+        imagen_id: imagen_id,
+        activo: activo !== false // por defecto true
+      },
+      include: { imagen: true }
+    });
+
+    console.log("✅ Servicio actualizado:", servicioActualizado.nombre);
+
+    res.json({
+      message: 'Servicio actualizado exitosamente',
+      servicio: {
+        id: Number(servicioActualizado.id),
+        nombre: servicioActualizado.nombre,
+        descripcion: servicioActualizado.descripcion,
+        duracion: servicioActualizado.duracion_minutos,
+        precio: Number(servicioActualizado.precio_clp),
+        activo: servicioActualizado.activo,
+        imagenUrl: servicioActualizado.imagen?.url_publica || null
+      }
+    });
+
+  } catch (err: any) {
+    console.error("❌ Error al actualizar servicio:", err);
+    res.status(500).json({ error: err.message ?? 'Error al actualizar el servicio' });
+  }
+});
+
 // Registrar un nuevo usuario
 // - Valida inputs mínimos
 // - Verifica que el email no exista
@@ -441,6 +725,16 @@ app.post("/usuario", async (req, res) => {
 
     // ===== Crear usuario (inactivo) con rol cliente =====
     const contrasena_hash = await bcrypt.hash(password, 12);
+    
+    // Buscar el rol de cliente por defecto
+    const rolCliente = await prisma.rol.findFirst({
+      where: { codigo: 'cliente' }
+    });
+    
+    if (!rolCliente) {
+      return res.status(500).json({ error: 'Rol de cliente no encontrado en la base de datos' });
+    }
+
     const nuevoUsuario = await prisma.usuario.create({
       data: {
         nombre,
