@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-export default function ConfirmarUsuarioPage() {
+function ConfirmarUsuarioContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
@@ -79,5 +79,22 @@ export default function ConfirmarUsuarioPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ConfirmarUsuarioPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen bg-[#f0f4f0]">
+          <div className="bg-white rounded-xl shadow-lg p-8 max-w-lg w-full border border-green-200 text-center">
+            <div className="animate-spin mx-auto mb-4 border-4 border-green-400 border-t-transparent rounded-full w-12 h-12"></div>
+            <h2 className="text-xl font-semibold text-[#2E5430]">Cargando...</h2>
+          </div>
+        </div>
+      }
+    >
+      <ConfirmarUsuarioContent />
+    </Suspense>
   );
 }
