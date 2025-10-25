@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import CreateServiceModal from "./CreateServiceModal";
 import UpdateServiceModal from "./UpdateServiceModal";
+import Swal from "sweetalert2";
 
 interface Servicio {
   id: number;
@@ -71,12 +72,40 @@ export default function ServicesAdminPage() {
     if (!servicio) return;
 
     const accion = servicio.activo ? 'desactivar' : 'activar';
-    const confirmado = confirm(`¿Estás seguro de ${accion} este servicio?`);
     
-    if (confirmado) {
+    const result = await Swal.fire({
+      title: `¿${accion.charAt(0).toUpperCase() + accion.slice(1)} servicio?`,
+      text: `¿Estás seguro de ${accion} el servicio "${servicio.nombre}"?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: servicio.activo ? '#d33' : '#2E5430',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: `Sí, ${accion}`,
+      cancelButtonText: 'Cancelar',
+    });
+    
+    if (result.isConfirmed) {
       try {
-        // TODO: Implementar endpoint de actualización en el backend
-        // Por ahora simulamos el cambio localmente
+        const response = await fetch(`http://localhost:3001/admin/servicios/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            nombre: servicio.nombre,
+            descripcion: servicio.descripcion,
+            duracion_minutos: servicio.duracion,
+            precio_clp: servicio.precio,
+            imagen_url: servicio.imagenUrl,
+            activo: !servicio.activo
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Error al actualizar el servicio');
+        }
+
+        // Actualizar estado local
         setServicios(prev => 
           prev.map(s => 
             s.id === id 
@@ -85,10 +114,22 @@ export default function ServicesAdminPage() {
           )
         );
         
-        alert(`Servicio ${accion === 'activar' ? 'activado' : 'desactivado'} correctamente`);
+        await Swal.fire({
+          icon: 'success',
+          title: `Servicio ${accion === 'activar' ? 'activado' : 'desactivado'}`,
+          text: `El servicio "${servicio.nombre}" ha sido ${accion === 'activar' ? 'activado' : 'desactivado'} correctamente.`,
+          confirmButtonColor: '#2E5430',
+          confirmButtonText: 'Aceptar',
+        });
       } catch (err) {
         console.error(`Error al ${accion} servicio:`, err);
-        alert(`Error al ${accion} el servicio. Intenta nuevamente.`);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: `Error al ${accion} el servicio. Intenta nuevamente.`,
+          confirmButtonColor: '#d33',
+          confirmButtonText: 'Aceptar',
+        });
       }
     }
   };
@@ -97,16 +138,24 @@ export default function ServicesAdminPage() {
     const servicio = servicios.find(s => s.id === id);
     if (!servicio) return;
 
-    const confirmado = confirm(`¿Estás seguro de eliminar permanentemente el servicio "${servicio.nombre}"?\n\nEsta acción NO se puede deshacer.`);
+    const result = await Swal.fire({
+      title: '¿Eliminar servicio?',
+      html: `¿Estás seguro de eliminar permanentemente el servicio <strong>"${servicio.nombre}"</strong>?<br><br>Esta acción NO se puede deshacer.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: 'Sí, eliminar',
+      cancelButtonText: 'Cancelar',
+    });
     
-    if (confirmado) {
+    if (result.isConfirmed) {
       try {
         const response = await fetch(`http://localhost:3001/admin/servicios/${id}`, {
           method: 'DELETE',
         });
 
         if (!response.ok) {
-          // Verificar si la respuesta es HTML (error del servidor)
           const contentType = response.headers.get("content-type");
           if (contentType && contentType.includes("text/html")) {
             throw new Error(`Error del servidor (${response.status}). Verifica que el endpoint DELETE /admin/servicios/${id} exista en el backend`);
@@ -119,11 +168,22 @@ export default function ServicesAdminPage() {
         // Remover el servicio de la lista local
         setServicios(prev => prev.filter(s => s.id !== id));
         
-        alert('Servicio eliminado correctamente');
+        await Swal.fire({
+          icon: 'success',
+          title: 'Servicio eliminado',
+          text: `El servicio "${servicio.nombre}" ha sido eliminado correctamente.`,
+          confirmButtonColor: '#2E5430',
+          confirmButtonText: 'Aceptar',
+        });
       } catch (err) {
         console.error('Error al eliminar servicio:', err);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        alert(`Error al eliminar el servicio: ${(err as any).message}`);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: `Error al eliminar el servicio: ${(err as Error).message}`,
+          confirmButtonColor: '#d33',
+          confirmButtonText: 'Aceptar',
+        });
       }
     }
   };
@@ -172,7 +232,7 @@ export default function ServicesAdminPage() {
           {/* Estado de error */}
           {error && !isLoading && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-              <p className="text-red-700">❌ {error}</p>
+              <p className="text-red-700">{error}</p>
               <button 
                 onClick={fetchServicios}
                 className="mt-2 text-red-600 hover:text-red-800 underline"

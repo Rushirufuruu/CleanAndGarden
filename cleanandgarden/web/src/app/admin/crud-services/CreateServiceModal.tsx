@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { supabase } from "../../../lib/supabase";
+import Swal from "sweetalert2";
 
 // Función para subir imagen a Supabase Storage
 const uploadImageToSupabase = async (file: File): Promise<string | null> => {
@@ -17,21 +18,17 @@ const uploadImageToSupabase = async (file: File): Promise<string | null> => {
       .upload(fileName, file);
 
     if (error) {
-      console.error('❌ Error uploading image:', error);
       throw error;
     }
 
-    console.log('✅ Imagen subida exitosamente:', data);
 
     // Obtener URL pública
     const { data: urlData } = supabase.storage
       .from('clean-and-garden-bucket')
       .getPublicUrl(fileName);
 
-    console.log('🔗 URL pública generada:', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
-    console.error('❌ Error in uploadImageToSupabase:', error);
     return null;
   }
 };
@@ -127,6 +124,15 @@ export default function CreateServiceModal({
         throw new Error(errorData.error || "Error al crear el servicio");
       }
 
+      // Mostrar alerta de éxito con SweetAlert
+      await Swal.fire({
+        icon: "success",
+        title: "Servicio creado",
+        text: `El servicio "${form.nombre}" ha sido creado correctamente.`,
+        confirmButtonColor: "#2E5430",
+        confirmButtonText: "Aceptar",
+      });
+
       // limpiar form
       setForm({
         nombre: "",
@@ -144,6 +150,15 @@ export default function CreateServiceModal({
       console.error("Error al crear servicio:", err);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setError((err as any).message || "Error al crear el servicio");
+      
+      // Mostrar alerta de error con SweetAlert
+      await Swal.fire({
+        icon: "error",
+        title: "Error al crear servicio",
+        text: (err as any).message || "Error al crear el servicio",
+        confirmButtonColor: "#d33",
+        confirmButtonText: "Aceptar",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -239,26 +254,37 @@ export default function CreateServiceModal({
               Duración *
             </label>
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-              <input
-                type="number"
+              <select
                 value={form.horas}
                 onChange={(e) =>
                   setForm({ ...form, horas: parseInt(e.target.value) || 0 })
                 }
                 className="w-full sm:w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430]"
-                min="0"
-                placeholder="Horas"
-              />
-              <input
-                type="number"
+                disabled={isSubmitting}
+              >
+                <option value={0}>0 horas</option>
+                <option value={1}>1 hora</option>
+                <option value={2}>2 horas</option>
+                <option value={3}>3 horas</option>
+                <option value={4}>4 horas</option>
+                <option value={5}>5 horas</option>
+                <option value={6}>6 horas</option>
+                <option value={7}>7 horas</option>
+                <option value={8}>8 horas</option>
+              </select>
+              <select
                 value={form.minutos}
                 onChange={(e) =>
                   setForm({ ...form, minutos: parseInt(e.target.value) || 0 })
                 }
                 className="w-full sm:w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430]"
-                min="0"
-                placeholder="Minutos"
-              />
+                disabled={isSubmitting}
+              >
+                <option value={0}>0 minutos</option>
+                <option value={15}>15 minutos</option>
+                <option value={30}>30 minutos</option>
+                <option value={45}>45 minutos</option>
+              </select>
             </div>
           </div>
 
@@ -269,9 +295,9 @@ export default function CreateServiceModal({
             </label>
             <input
               type="number"
-              value={form.precio}
+              value={form.precio === 0 ? "" : form.precio}
               onChange={(e) =>
-                setForm({ ...form, precio: parseInt(e.target.value) || 0 })
+                setForm({ ...form, precio: e.target.value === "" ? 0 : parseInt(e.target.value) })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430]"
               placeholder="Ej: 30000"

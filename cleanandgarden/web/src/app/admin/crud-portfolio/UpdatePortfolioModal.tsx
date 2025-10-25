@@ -4,16 +4,13 @@ import Image from "next/image";
 import { supabase } from "../../../lib/supabase";
 import Swal from "sweetalert2";
 
-// Función para subir imagen a Supabase Storage
 const uploadImageToSupabase = async (file: File): Promise<string | null> => {
   try {
     console.log('Iniciando subida de imagen:', file.name, 'Tamaño:', file.size);
     
-    // Generar nombre único para el archivo
-    const fileName = `services/${Date.now()}-${file.name}`;
+    const fileName = `portfolio/${Date.now()}-${file.name}`;
     console.log('Nombre del archivo:', fileName);
     
-    // Subir archivo al bucket
     const { data, error } = await supabase.storage
       .from('clean-and-garden-bucket')
       .upload(fileName, file);
@@ -25,12 +22,11 @@ const uploadImageToSupabase = async (file: File): Promise<string | null> => {
 
     console.log('Imagen subida exitosamente:', data);
 
-    // Obtener URL pública
     const { data: urlData } = supabase.storage
       .from('clean-and-garden-bucket')
       .getPublicUrl(fileName);
 
-    console.log('🔗 URL pública generada:', urlData.publicUrl);
+    console.log('URL pública generada:', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
     console.error('Error in uploadImageToSupabase:', error);
@@ -38,49 +34,39 @@ const uploadImageToSupabase = async (file: File): Promise<string | null> => {
   }
 };
 
-interface Servicio {
+interface PortfolioItem {
   id: number;
-  nombre: string;
-  descripcion: string;
-  duracion: number;
-  precio: number;
-  activo: boolean;
+  titulo: string;
+  descripcion: string | null;
+  publicado: boolean;
   imagenUrl?: string | null;
 }
 
-interface UpdateServiceModalProps {
+interface UpdatePortfolioModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onServiceUpdated: () => void;
-  servicio: Servicio | null;
+  onPortfolioUpdated: () => void;
+  portfolio: PortfolioItem | null;
 }
 
-interface ServiceForm {
-  nombre: string;
-  categoria: string;
+interface PortfolioForm {
+  titulo: string;
   descripcion: string;
-  horas: number;
-  minutos: number;
-  precio: number;
-  activo: boolean;
+  publicado: boolean;
   imagen: File | null;
   imagenActual: string | null;
 }
 
-export default function UpdateServiceModal({
+export default function UpdatePortfolioModal({
   isOpen,
   onClose,
-  onServiceUpdated,
-  servicio,
-}: UpdateServiceModalProps) {
-  const [form, setForm] = useState<ServiceForm>({
-    nombre: "",
-    categoria: "",
+  onPortfolioUpdated,
+  portfolio,
+}: UpdatePortfolioModalProps) {
+  const [form, setForm] = useState<PortfolioForm>({
+    titulo: "",
     descripcion: "",
-    horas: 0,
-    minutos: 0,
-    precio: 0,
-    activo: true,
+    publicado: false,
     imagen: null,
     imagenActual: null,
   });
@@ -88,38 +74,30 @@ export default function UpdateServiceModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar datos del servicio cuando se abre el modal
   useEffect(() => {
-    if (servicio && isOpen) {
-      const horas = Math.floor(servicio.duracion / 60);
-      const minutos = servicio.duracion % 60;
-      
+    if (portfolio && isOpen) {
       setForm({
-        nombre: servicio.nombre,
-        categoria: "", // TODO: Agregar categoria al modelo si es necesario
-        descripcion: servicio.descripcion || "",
-        horas,
-        minutos,
-        precio: servicio.precio,
-        activo: servicio.activo,
+        titulo: portfolio.titulo,
+        descripcion: portfolio.descripcion || "",
+        publicado: portfolio.publicado,
         imagen: null,
-        imagenActual: servicio.imagenUrl || null,
+        imagenActual: portfolio.imagenUrl || null,
       });
       setError(null);
     }
-  }, [servicio, isOpen]);
+  }, [portfolio, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!servicio) return;
+    if (!portfolio) return;
 
-    if (!form.nombre.trim()) {
-      setError("El nombre del servicio es requerido");
+    if (!form.titulo.trim()) {
+      setError("El título es requerido");
       return;
     }
-    if (form.precio <= 0) {
-      setError("El precio debe ser mayor a 0");
+    if (!form.descripcion.trim()) {
+      setError("La descripción es requerida");
       return;
     }
 
@@ -127,10 +105,7 @@ export default function UpdateServiceModal({
       setIsSubmitting(true);
       setError(null);
 
-      const duracionTotal = form.horas * 60 + form.minutos;
-
-      // Subir nueva imagen si existe
-      let imagenUrl = form.imagenActual; // Mantener la imagen actual por defecto
+      let imagenUrl = form.imagenActual;
       if (form.imagen) {
         try {
           const nuevaImagenUrl = await uploadImageToSupabase(form.imagen);
@@ -142,64 +117,53 @@ export default function UpdateServiceModal({
         }
       }
 
-      const response = await fetch(`http://localhost:3001/admin/servicios/${servicio.id}`, {
+      const response = await fetch(`http://localhost:3001/admin/portfolio/${portfolio.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nombre: form.nombre.trim(),
-          categoria: form.categoria.trim() || null,
-          descripcion: form.descripcion.trim() || null,
-          duracion_minutos: duracionTotal,
-          precio_clp: form.precio,
+          titulo: form.titulo.trim(),
+          descripcion: form.descripcion.trim(),
+          publicado: form.publicado,
           imagen_url: imagenUrl,
-          activo: form.activo,
         }),
       });
 
       if (!response.ok) {
-        // Verificar si la respuesta es HTML (error del servidor)
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html")) {
           throw new Error(`Error del servidor (${response.status}). Verifica que el backend esté corriendo en http://localhost:3001`);
         }
         
         const errorData = await response.json();
-        throw new Error(errorData.error || "Error al actualizar el servicio");
+        throw new Error(errorData.error || "Error al actualizar el trabajo");
       }
 
-      // Mostrar alerta de éxito con SweetAlert
       await Swal.fire({
         icon: "success",
-        title: "¡Servicio actualizado!",
-        text: `El servicio "${form.nombre}" ha sido actualizado correctamente.`,
+        title: "¡Trabajo actualizado!",
+        text: `El trabajo "${form.titulo}" ha sido actualizado correctamente.`,
         confirmButtonColor: "#2E5430",
         confirmButtonText: "Aceptar",
       });
 
-      // Limpiar formulario y cerrar modal
       setForm({
-        nombre: "",
-        categoria: "",
+        titulo: "",
         descripcion: "",
-        horas: 0,
-        minutos: 0,
-        precio: 0,
-        activo: true,
+        publicado: false,
         imagen: null,
         imagenActual: null,
       });
       
-      onServiceUpdated();
+      onPortfolioUpdated();
       onClose();
     } catch (err) {
-      console.error("Error al actualizar servicio:", err);
-      setError(err instanceof Error ? err.message : "Error al actualizar el servicio");
+      console.error("Error al actualizar trabajo:", err);
+      setError(err instanceof Error ? err.message : "Error al actualizar el trabajo");
       
-      // Mostrar alerta de error con SweetAlert
       await Swal.fire({
         icon: "error",
         title: "Error al actualizar",
-        text: err instanceof Error ? err.message : "Error al actualizar el servicio",
+        text: err instanceof Error ? err.message : "Error al actualizar el trabajo",
         confirmButtonColor: "#d33",
         confirmButtonText: "Aceptar",
       });
@@ -211,12 +175,10 @@ export default function UpdateServiceModal({
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validar tipo de archivo
       if (!file.type.startsWith('image/')) {
         setError('Por favor selecciona un archivo de imagen válido');
         return;
       }
-      // Validar tamaño (5MB máximo)
       if (file.size > 5 * 1024 * 1024) {
         setError('La imagen debe ser menor a 5MB');
         return;
@@ -230,14 +192,13 @@ export default function UpdateServiceModal({
     setForm(prev => ({ ...prev, imagen: null, imagenActual: null }));
   };
 
-  // Función para manejar click fuera del modal
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget && !isSubmitting) {
       onClose();
     }
   };
 
-  if (!isOpen || !servicio) return null;
+  if (!isOpen || !portfolio) return null;
 
   return (
     <div 
@@ -245,153 +206,72 @@ export default function UpdateServiceModal({
       onClick={handleOverlayClick}
     >
       <div 
-        className="bg-white rounded-2xl shadow-xl w-full max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-200"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl max-h-[90vh] overflow-y-auto border border-gray-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 sm:p-6">
           <h2 className="text-center text-lg sm:text-xl md:text-2xl font-bold text-[#2E5430] mb-4 sm:mb-6">
-            Actualizar servicio
+            Actualizar trabajo del portafolio
           </h2>
 
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-              <p className="text-red-700 text-sm">❌ {error}</p>
+              <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-            {/* Nombre del servicio */}
+            {/* Título */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nombre servicio *
+                Título *
               </label>
               <input
                 type="text"
-                value={form.nombre}
-                onChange={(e) => setForm(prev => ({ ...prev, nombre: e.target.value }))}
+                value={form.titulo}
+                onChange={(e) => setForm(prev => ({ ...prev, titulo: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                placeholder="Ej: Poda de árboles"
+                placeholder="Ej: Jardín residencial Los Andes"
                 disabled={isSubmitting}
                 required
               />
-            </div>
-
-            {/* Categoría */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Categoría
-              </label>
-              <select
-                value={form.categoria}
-                onChange={(e) => setForm(prev => ({ ...prev, categoria: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                disabled={isSubmitting}
-              >
-                <option value="">Seleccione una categoría</option>
-                <option value="Corte">Corte</option>
-                <option value="Instalación">Instalación</option>
-                <option value="Mantención">Mantención</option>
-                <option value="Podación">Podación</option>
-              </select>
             </div>
 
             {/* Descripción */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Descripción
+                Descripción *
               </label>
               <textarea
                 value={form.descripcion}
                 onChange={(e) => setForm(prev => ({ ...prev, descripcion: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                rows={3}
-                placeholder="Describe el servicio..."
-                disabled={isSubmitting}
-              />
-            </div>
-
-            {/* Duración */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Duración *
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Horas</label>
-                  <select
-                    value={form.horas}
-                    onChange={(e) => setForm(prev => ({ ...prev, horas: parseInt(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                    disabled={isSubmitting}
-                  >
-                    <option value={0}>0 horas</option>
-                    <option value={1}>1 hora</option>
-                    <option value={2}>2 horas</option>
-                    <option value={3}>3 horas</option>
-                    <option value={4}>4 horas</option>
-                    <option value={5}>5 horas</option>
-                    <option value={6}>6 horas</option>
-                    <option value={7}>7 horas</option>
-                    <option value={8}>8 horas</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Minutos</label>
-                  <select
-                    value={form.minutos}
-                    onChange={(e) => setForm(prev => ({ ...prev, minutos: parseInt(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                    disabled={isSubmitting}
-                  >
-                    <option value={0}>0 minutos</option>
-                    <option value={15}>15 minutos</option>
-                    <option value={30}>30 minutos</option>
-                    <option value={45}>45 minutos</option>
-                  </select>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Total: {form.horas * 60 + form.minutos} minutos
-              </p>
-            </div>
-
-            {/* Precio */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Precio (CLP) *
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="500"
-                value={form.precio === 0 ? "" : form.precio}
-                onChange={(e) => setForm(prev => ({ ...prev, precio: e.target.value === "" ? 0 : parseInt(e.target.value) }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
-                placeholder="Ej: 25000"
+                rows={4}
+                placeholder="Describe el trabajo realizado..."
                 disabled={isSubmitting}
                 required
               />
             </div>
 
-            {/* Estado activo */}
+            {/* Estado de publicación */}
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="activo"
-                checked={form.activo}
-                onChange={(e) => setForm(prev => ({ ...prev, activo: e.target.checked }))}
+                id="publicado"
+                checked={form.publicado}
+                onChange={(e) => setForm(prev => ({ ...prev, publicado: e.target.checked }))}
                 className="h-4 w-4 text-[#2E5430] focus:ring-[#2E5430] border-gray-300 rounded"
                 disabled={isSubmitting}
               />
-              <label htmlFor="activo" className="text-sm font-medium text-gray-700">
-                Servicio activo
+              <label htmlFor="publicado" className="text-sm font-medium text-gray-700">
+                Trabajo publicado
               </label>
             </div>
 
             {/* Imagen */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Imagen del servicio
+                Imagen principal
               </label>
               
               {/* Imagen actual */}
@@ -402,8 +282,8 @@ export default function UpdateServiceModal({
                     <Image
                       src={form.imagenActual}
                       alt="Imagen actual"
-                      width={150}
-                      height={100}
+                      width={200}
+                      height={150}
                       className="rounded-lg object-cover"
                     />
                     <button
@@ -426,8 +306,8 @@ export default function UpdateServiceModal({
                     <Image
                       src={URL.createObjectURL(form.imagen)}
                       alt="Nueva imagen"
-                      width={150}
-                      height={100}
+                      width={200}
+                      height={150}
                       className="rounded-lg object-cover"
                     />
                     <button
@@ -450,7 +330,7 @@ export default function UpdateServiceModal({
                 disabled={isSubmitting}
               />
               <p className="text-xs text-gray-500 mt-1">
-                JPG, PNG, GIF. Máximo 5MB.
+                JPG, PNG, WEBP. Máximo 5MB.
               </p>
             </div>
 

@@ -87,7 +87,7 @@ export default function GestionInsumos() {
     const data = await res.json();
 
     if (res.ok) {
-      Swal.fire("✅ Éxito", data.message, "success");
+      Swal.fire("Éxito", data.message, "success");
       limpiarFormulario();
       fetchInsumos();
     } else {
@@ -238,7 +238,7 @@ export default function GestionInsumos() {
           </div>
         </form>
 
-        {/* 📋 Tabla */}
+        {/* Tabla */}
         {loading ? (
           <p className="text-center text-gray-500">Cargando insumos...</p>
         ) : (

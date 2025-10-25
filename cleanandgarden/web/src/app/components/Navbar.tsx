@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
-import { Settings, UserPlus, BarChart3, ShieldCheck, User } from "lucide-react";
+import { Settings, UserPlus, BarChart3, ShieldCheck, User, Wrench, Images } from "lucide-react";
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -141,7 +141,7 @@ export default function Navbar() {
 
   return (
     <div className="navbar shadow-md px-6 py-2 sticky top-0 z-50 bg-[#f5e9d7]">
-      {/* 🌿 Logo + Info usuario */}
+      {/* Logo + Info usuario */}
       <div className="navbar-start flex items-center gap-4">
         <Link href="/">
           <Image
@@ -154,7 +154,7 @@ export default function Navbar() {
           />
         </Link>
 
-        {/* 🧍 Info usuario */}
+        {/*  Info usuario */}
         {isLoggedIn && userName && userRole && (
           <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-lg border border-gray-200 shadow-sm">
             <User className="text-[#2E5430]" size={20} />
@@ -166,7 +166,7 @@ export default function Navbar() {
         )}
       </div>
 
-      {/* 🌸 Menú principal */}
+      {/* Menú principal */}
       <div className="navbar-center hidden lg:flex">
         <ul className="menu menu-horizontal px-1 gap-1">
           <li><Link href="/">Inicio</Link></li>
@@ -218,6 +218,24 @@ export default function Navbar() {
                     </Link>
                   </li>
                   <li>
+                    <Link
+                      href="/admin/crud-services"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <Wrench size={18} /> Gestión de Servicios
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/crud-portfolio"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <Images size={18} /> Gestión de Portafolio
+                    </Link>
+                  </li>
+                  <li>
                     <span className="flex items-center gap-2 px-4 py-2 text-gray-400 cursor-not-allowed">
                       <BarChart3 size={18} /> (Más opciones pronto)
                     </span>
@@ -229,7 +247,7 @@ export default function Navbar() {
         </ul>
       </div>
 
-      {/* 🔒 Botones sesión */}
+      {/* Botones sesión */}
       <div className="navbar-end hidden lg:flex space-x-3">
         {!isLoggedIn ? (
           <>
@@ -261,7 +279,7 @@ export default function Navbar() {
         )}
       </div>
 
-      {/* ✨ Animación */}
+      {/* Animación */}
       <style jsx>{`
         @keyframes fadeIn {
           from {

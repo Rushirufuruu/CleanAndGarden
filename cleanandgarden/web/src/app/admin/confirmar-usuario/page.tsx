@@ -48,13 +48,13 @@ function ConfirmarUsuarioContent() {
           <>
             <div className="animate-spin mx-auto mb-4 border-4 border-green-400 border-t-transparent rounded-full w-12 h-12"></div>
             <h2 className="text-xl font-semibold text-[#2E5430]">Confirmando tu cuenta...</h2>
-            <p className="text-gray-600 mt-2">Por favor espera unos segundos 🌿</p>
+            <p className="text-gray-600 mt-2">Por favor espera unos segundos</p>
           </>
         )}
 
         {estado === "exito" && (
           <>
-            <h2 className="text-2xl font-bold text-[#2E5430] mb-2">✅ ¡Cuenta confirmada!</h2>
+            <h2 className="text-2xl font-bold text-[#2E5430] mb-2">¡Cuenta confirmada!</h2>
             <p className="text-gray-700 mb-6">{mensaje}</p>
             <Link
               href="/login"
@@ -67,7 +67,7 @@ function ConfirmarUsuarioContent() {
 
         {estado === "error" && (
           <>
-            <h2 className="text-2xl font-bold text-red-600 mb-2">❌ Error al confirmar</h2>
+            <h2 className="text-2xl font-bold text-red-600 mb-2">Error al confirmar</h2>
             <p className="text-gray-700 mb-6">{mensaje}</p>
             <Link
               href="/"

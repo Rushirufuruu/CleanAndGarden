@@ -21,7 +21,7 @@ export default function CrearUsuarioPage() {
   const [tipoMensaje, setTipoMensaje] = useState<"success" | "error" | "">("");
   const [loading, setLoading] = useState(false);
 
-  // 🟢 Cargar roles dinámicamente desde el backend
+  //  Cargar roles dinámicamente desde el backend
   useEffect(() => {
     const fetchRoles = async () => {
       try {
@@ -31,7 +31,7 @@ export default function CrearUsuarioPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Error al obtener roles");
 
-        // 👇 Opcional: filtra si no quieres mostrar el rol 'cliente'
+        //  Opcional: filtra si no quieres mostrar el rol 'cliente'
         const filtered = data.filter((r: Rol) => r.codigo !== "cliente");
 
         setRoles(filtered);
@@ -41,7 +41,7 @@ export default function CrearUsuarioPage() {
           setForm((prev) => ({ ...prev, tipo: filtered[0].codigo }));
         }
       } catch (err) {
-        console.error("❌ Error al cargar roles:", err);
+        console.error(" Error al cargar roles:", err);
         Swal.fire("Error", "No se pudieron cargar los roles disponibles", "error");
       }
     };
@@ -94,7 +94,7 @@ export default function CrearUsuarioPage() {
           Panel de Administración
         </h1>
         <h2 className="mb-4 text-xl font-semibold text-center text-gray-700">
-          Crear nuevo usuario 🌿
+          Crear nuevo usuario 
         </h2>
 
         {mensaje && (
@@ -141,7 +141,7 @@ export default function CrearUsuarioPage() {
             required
           />
 
-          {/* 🟢 Select dinámico de roles */}
+          {/* Select dinámico de roles */}
           <select
             name="tipo"
             value={form.tipo}

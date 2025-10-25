@@ -19,22 +19,26 @@ export default function PortafolioCard({ trabajo }: { trabajo: Trabajo }) {
   });
 
   return (
-    <div className="rounded-2xl shadow p-4 bg-white">
-      <Image
-        src={trabajo.imagenUrl}
-        alt={trabajo.titulo}
-        width={400}
-        height={160}
-        className="h-40 w-full object-cover rounded-lg"
-      />
-      <h3 className="font-semibold mt-4">{trabajo.titulo}</h3>
-      <p className="text-sm text-gray-600 mb-2">{trabajo.descripcion}</p>
-      {trabajo.servicio && (
-        <span className="inline-block bg-[#2E5430] text-white text-xs px-2 py-1 rounded-full mb-3">
-          {trabajo.servicio}
-        </span>
-      )}
-      <div className="mt-3 text-center">
+    <div className="rounded-2xl shadow p-4 bg-white h-full flex flex-col">
+      <div className="h-40">
+        <Image
+          src={trabajo.imagenUrl}
+          alt={trabajo.titulo}
+          width={400}
+          height={160}
+          className="h-full w-full object-cover rounded-lg"
+        />
+      </div>
+      <h3 className="font-semibold mt-4 line-clamp-2 min-h-[3rem]">{trabajo.titulo}</h3>
+      <p className="text-sm text-gray-600 mb-2 line-clamp-3 min-h-[3.75rem]">{trabajo.descripcion}</p>
+      <div className="min-h-[1.75rem] mb-3">
+        {trabajo.servicio && (
+          <span className="inline-block bg-[#2E5430] text-white text-xs px-2 py-1 rounded-full">
+            {trabajo.servicio}
+          </span>
+        )}
+      </div>
+      <div className="mt-auto text-center">
         <span className="px-3 py-1 bg-gray-200 rounded-lg text-sm">
           {fechaFormateada}
         </span>

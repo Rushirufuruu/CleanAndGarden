@@ -24,8 +24,8 @@ import jwt from "jsonwebtoken";
 const app = express()
 // Habilita CORS: permite que el front pueda llamar a la api
 app.use(cors({
-  origin: "http://localhost:3000", // 👈 dirección exacta de tu frontend
-  credentials: true,               // 👈 habilita envío de cookies
+  origin: "http://localhost:3000", //  dirección exacta de tu frontend
+  credentials: true,               //  habilita envío de cookies
 }));
 
 app.use(express.json());
@@ -44,7 +44,7 @@ function authMiddleware(req: Request, res: Response, next: any) {
     (req as any).user = decoded;
     next();
   } catch (err) {
-    console.error("❌ Token inválido o expirado:", err);
+    console.error(" Token inválido o expirado:", err);
     return res.status(403).json({ error: "Token inválido o expirado" });
   }
 }
@@ -59,7 +59,7 @@ function toJSONSafe<T>(data: T): T {
 }
 
 // ==========================================
-// 🔐 JWT CONFIG
+//  JWT CONFIG
 // ==========================================
 const JWT_SECRET = process.env.JWT_SECRET || "clave_por_defecto";
 
@@ -119,9 +119,9 @@ app.get('/regiones', async (_req, res) => {
       orderBy: { nombre: 'asc' },
     });
 
-    res.json(toJSONSafe(regiones)); // 👈 convierte BigInt a Number
+    res.json(toJSONSafe(regiones)); //  convierte BigInt a Number
   } catch (err: any) {
-    console.error("❌ Error en /regiones:", err);
+    console.error("Error en /regiones:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener regiones' });
   }
 });
@@ -140,9 +140,9 @@ app.get('/regiones/:id/comunas', async (req, res) => {
       orderBy: { nombre: 'asc' }
     });
 
-    res.json(toJSONSafe(comunas)); // 👈 convierte BigInt a Number
+    res.json(toJSONSafe(comunas)); // convierte BigInt a Number
   } catch (err: any) {
-    console.error("❌ Error al obtener comunas:", err);
+    console.error(" Error al obtener comunas:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener comunas' });
   }
 });
@@ -198,7 +198,7 @@ app.get('/portfolio', async (req, res) => {
 
     res.json(toJSONSafe(portfolioFormatted));
   } catch (err: any) {
-    console.error("❌ Error al obtener portfolio:", err);
+    console.error(" Error al obtener portfolio:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener portfolio' });
   }
 });
@@ -323,8 +323,257 @@ app.get('/portfolio/:id', async (req, res) => {
 
     res.json(toJSONSafe(trabajoDetalle));
   } catch (err: any) {
-    console.error("❌ Error al obtener trabajo del portfolio:", err);
+    console.error(" Error al obtener trabajo del portfolio:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener trabajo' });
+  }
+});
+
+// Obtener todos los trabajos del portafolio para admin (incluye borradores)
+app.get('/admin/portfolio', async (req, res) => {
+  try {
+    const portfolioItems = await prisma.portafolio_item.findMany({
+      select: {
+        id: true,
+        titulo: true,
+        descripcion: true,
+        publicado: true,
+        publicado_en: true,
+        creado_en: true,
+        actualizado_en: true,
+        imagen: {
+          select: {
+            url_publica: true,
+            clave_storage: true
+          }
+        }
+      },
+      orderBy: { 
+        creado_en: 'desc' 
+      }
+    });
+
+    // Formatear datos para el admin
+    const portfolioFormatted = portfolioItems.map(item => ({
+      id: Number(item.id),
+      titulo: item.titulo,
+      descripcion: item.descripcion || '',
+      publicado: item.publicado,
+      imagenUrl: item.imagen?.url_publica || '/images/placeholder-portfolio.jpg',
+      fechaCreacion: item.creado_en,
+      fechaActualizacion: item.actualizado_en
+    }));
+
+    res.json(toJSONSafe(portfolioFormatted));
+  } catch (err: any) {
+    console.error(" Error al obtener portfolio admin:", err);
+    res.status(500).json({ error: err.message ?? 'Error al obtener portfolio' });
+  }
+});
+
+// Crear nuevo trabajo del portafolio (admin)
+app.post('/admin/portfolio', async (req, res) => {
+  try {
+    const { titulo, descripcion, publicado, imagen_url } = req.body;
+
+    // Validaciones básicas
+    if (!titulo || titulo.trim() === '') {
+      return res.status(400).json({ error: 'El título es requerido' });
+    }
+
+    if (!descripcion || descripcion.trim() === '') {
+      return res.status(400).json({ error: 'La descripción es requerida' });
+    }
+
+    // Crear el trabajo del portafolio
+    let imagen_id = null;
+    
+    // Si hay URL de imagen, crear registro en tabla imagen
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          tipo: 'portafolio',
+          clave_storage: `portfolio/${Date.now()}-${titulo.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg'
+        }
+      });
+      imagen_id = nuevaImagen.id;
+    }
+
+    const nuevoTrabajo = await prisma.portafolio_item.create({
+      data: {
+        titulo: titulo.trim(),
+        descripcion: descripcion.trim(),
+        imagen_principal_id: imagen_id,
+        publicado: publicado === true,
+        publicado_en: publicado === true ? new Date() : null
+      },
+      include: {
+        imagen: true
+      }
+    });
+
+    console.log("Trabajo del portafolio creado:", nuevoTrabajo.titulo);
+
+    res.status(201).json({
+      message: 'Trabajo creado exitosamente',
+      trabajo: {
+        id: Number(nuevoTrabajo.id),
+        titulo: nuevoTrabajo.titulo,
+        descripcion: nuevoTrabajo.descripcion,
+        publicado: nuevoTrabajo.publicado,
+        imagenUrl: nuevoTrabajo.imagen?.url_publica || null
+      }
+    });
+
+  } catch (err: any) {
+    console.error(" Error al crear trabajo del portafolio:", err);
+    res.status(500).json({ error: err.message ?? 'Error al crear el trabajo' });
+  }
+});
+
+// Actualizar trabajo del portafolio (admin)
+app.put('/admin/portfolio/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { titulo, descripcion, publicado, imagen_url } = req.body;
+
+    const portfolioId = parseInt(id);
+    if (isNaN(portfolioId)) {
+      return res.status(400).json({ error: 'ID de trabajo inválido' });
+    }
+
+    // Validaciones básicas
+    if (!titulo || titulo.trim() === '') {
+      return res.status(400).json({ error: 'El título es requerido' });
+    }
+
+    if (!descripcion || descripcion.trim() === '') {
+      return res.status(400).json({ error: 'La descripción es requerida' });
+    }
+
+    // Verificar que el trabajo exista
+    const trabajoExistente = await prisma.portafolio_item.findUnique({
+      where: { id: portfolioId },
+      include: { imagen: true }
+    });
+
+    if (!trabajoExistente) {
+      return res.status(404).json({ error: 'Trabajo no encontrado' });
+    }
+
+    // Manejar imagen
+    let imagen_id = trabajoExistente.imagen_principal_id;
+    
+    // Si hay nueva URL de imagen, actualizar o crear registro
+    if (imagen_url && imagen_url !== trabajoExistente.imagen?.url_publica) {
+      // Si ya tenía una imagen, actualizarla
+      if (trabajoExistente.imagen_principal_id) {
+        await prisma.imagen.update({
+          where: { id: trabajoExistente.imagen_principal_id },
+          data: {
+            url_publica: imagen_url,
+            clave_storage: `portfolio/${Date.now()}-${titulo.trim().replace(/\s+/g, '-')}`,
+          }
+        });
+      } else {
+        // Si no tenía imagen, crear una nueva
+        const nuevaImagen = await prisma.imagen.create({
+          data: {
+            tipo: 'portafolio',
+            clave_storage: `portfolio/${Date.now()}-${titulo.trim().replace(/\s+/g, '-')}`,
+            url_publica: imagen_url,
+            tipo_contenido: 'image/jpeg'
+          }
+        });
+        imagen_id = nuevaImagen.id;
+      }
+    } else if (!imagen_url && trabajoExistente.imagen_principal_id) {
+      // Si se eliminó la imagen, eliminar el registro
+      await prisma.imagen.delete({
+        where: { id: trabajoExistente.imagen_principal_id }
+      });
+      imagen_id = null;
+    }
+
+    // Actualizar el trabajo
+    const trabajoActualizado = await prisma.portafolio_item.update({
+      where: { id: portfolioId },
+      data: {
+        titulo: titulo.trim(),
+        descripcion: descripcion.trim(),
+        imagen_principal_id: imagen_id,
+        publicado: publicado === true,
+        publicado_en: publicado === true ? new Date() : null,
+        actualizado_en: new Date()
+      },
+      include: { imagen: true }
+    });
+
+    console.log("Trabajo actualizado:", trabajoActualizado.titulo);
+
+    res.json({
+      message: 'Trabajo actualizado exitosamente',
+      trabajo: {
+        id: Number(trabajoActualizado.id),
+        titulo: trabajoActualizado.titulo,
+        descripcion: trabajoActualizado.descripcion,
+        publicado: trabajoActualizado.publicado,
+        imagenUrl: trabajoActualizado.imagen?.url_publica || null
+      }
+    });
+
+  } catch (err: any) {
+    console.error("Error al actualizar trabajo:", err);
+    res.status(500).json({ error: err.message ?? 'Error al actualizar el trabajo' });
+  }
+});
+
+// Publicar/Despublicar trabajo del portafolio (admin)
+app.patch('/admin/portfolio/:id/toggle-publish', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const portfolioId = parseInt(id);
+    if (isNaN(portfolioId)) {
+      return res.status(400).json({ error: 'ID de trabajo inválido' });
+    }
+
+    // Verificar que el trabajo exista
+    const trabajoExistente = await prisma.portafolio_item.findUnique({
+      where: { id: portfolioId }
+    });
+
+    if (!trabajoExistente) {
+      return res.status(404).json({ error: 'Trabajo no encontrado' });
+    }
+
+    // Alternar el estado de publicación
+    const nuevoEstado = !trabajoExistente.publicado;
+    
+    const trabajoActualizado = await prisma.portafolio_item.update({
+      where: { id: portfolioId },
+      data: {
+        publicado: nuevoEstado,
+        publicado_en: nuevoEstado ? new Date() : null,
+        actualizado_en: new Date()
+      }
+    });
+
+    console.log(`Trabajo ${nuevoEstado ? 'publicado' : 'despublicado'}:`, trabajoActualizado.titulo);
+
+    res.json({
+      message: `Trabajo ${nuevoEstado ? 'publicado' : 'despublicado'} exitosamente`,
+      trabajo: {
+        id: Number(trabajoActualizado.id),
+        titulo: trabajoActualizado.titulo,
+        publicado: trabajoActualizado.publicado
+      }
+    });
+
+  } catch (err: any) {
+    console.error("Error al cambiar estado de publicación:", err);
+    res.status(500).json({ error: err.message ?? 'Error al cambiar estado de publicación' });
   }
 });
 
@@ -365,7 +614,7 @@ app.get('/servicios', async (req, res) => {
 
     res.json(toJSONSafe(serviciosFormatted));
   } catch (err: any) {
-    console.error("❌ Error al obtener servicios:", err);
+    console.error(" Error al obtener servicios:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
   }
 });
@@ -410,7 +659,7 @@ app.get('/admin/servicios', async (req, res) => {
 
     res.json(toJSONSafe(serviciosFormatted));
   } catch (err: any) {
-    console.error("❌ Error al obtener servicios admin:", err);
+    console.error(" Error al obtener servicios admin:", err);
     res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
   }
 });
@@ -469,7 +718,7 @@ app.post('/admin/servicios', async (req, res) => {
       }
     });
 
-    console.log("✅ Servicio creado:", nuevoServicio.nombre);
+    console.log("Servicio creado:", nuevoServicio.nombre);
 
     res.status(201).json({
       message: 'Servicio creado exitosamente',
@@ -484,7 +733,7 @@ app.post('/admin/servicios', async (req, res) => {
     });
 
   } catch (err: any) {
-    console.error("❌ Error al crear servicio:", err);
+    console.error(" Error al crear servicio:", err);
     res.status(500).json({ error: err.message ?? 'Error al crear el servicio' });
   }
 });
@@ -522,7 +771,7 @@ app.delete('/admin/servicios/:id', async (req, res) => {
       where: { id: servicioId }
     });
 
-    console.log(`✅ Servicio eliminado: ${servicioExistente.nombre} (ID: ${servicioId})`);
+    console.log(` Servicio eliminado: ${servicioExistente.nombre} (ID: ${servicioId})`);
 
     res.json({
       message: 'Servicio eliminado exitosamente',
@@ -533,7 +782,7 @@ app.delete('/admin/servicios/:id', async (req, res) => {
     });
 
   } catch (err: any) {
-    console.error("❌ Error al eliminar servicio:", err);
+    console.error("Error al eliminar servicio:", err);
     res.status(500).json({ error: err.message ?? 'Error al eliminar el servicio' });
   }
 });
@@ -633,7 +882,7 @@ app.put('/admin/servicios/:id', async (req, res) => {
       include: { imagen: true }
     });
 
-    console.log("✅ Servicio actualizado:", servicioActualizado.nombre);
+    console.log("Servicio actualizado:", servicioActualizado.nombre);
 
     res.json({
       message: 'Servicio actualizado exitosamente',
@@ -649,7 +898,7 @@ app.put('/admin/servicios/:id', async (req, res) => {
     });
 
   } catch (err: any) {
-    console.error("❌ Error al actualizar servicio:", err);
+    console.error("Error al actualizar servicio:", err);
     res.status(500).json({ error: err.message ?? 'Error al actualizar el servicio' });
   }
 });
@@ -736,7 +985,7 @@ app.post("/usuario", async (req, res) => {
         telefono,
         contrasena_hash,
         activo: false,
-        rol: { connect: { id: rolCliente.id } }, // 👈 asigna rol cliente
+        rol: { connect: { id: rolCliente.id } }, // asigna rol cliente
       },
       select: {
         id: true,
@@ -793,13 +1042,13 @@ app.post("/usuario", async (req, res) => {
           `,
         });
 
-        console.log("📧 Correo enviado a:", nuevoUsuario.email);
+        console.log("Correo enviado a:", nuevoUsuario.email);
       } catch (err) {
-        console.error("⚠️ Error al enviar correo:", err);
+        console.error("Error al enviar correo:", err);
       }
     });
   } catch (err) {
-    console.error("❌ Error en /usuario:", err);
+    console.error("Error en /usuario:", err);
     return res.status(500).json({ error: "Error al registrar usuario" });
   }
 });
@@ -818,7 +1067,7 @@ app.get("/confirm-email/:token", async (req, res) => {
       })
     }
 
-    console.log("🔍 Buscando token:", token)
+    console.log("Buscando token:", token)
 
     // Buscar el token en la base de datos
     const confirm = await prisma.confirm_token.findUnique({ 
@@ -830,7 +1079,7 @@ app.get("/confirm-email/:token", async (req, res) => {
       }
     })
 
-    console.log("📄 Token encontrado:", confirm ? "Sí" : "No")
+    console.log("Token encontrado:", confirm ? "Sí" : "No")
 
     if (!confirm) {
       return res.status(400).json({ 
@@ -842,7 +1091,7 @@ app.get("/confirm-email/:token", async (req, res) => {
     // Verificar si el token ha expirado
     const now = new Date()
     if (confirm.expiresAt < now) {
-      console.log("⏰ Token expirado:", confirm.expiresAt, "vs", now)
+      console.log("Token expirado:", confirm.expiresAt, "vs", now)
       return res.status(400).json({ 
         success: false, 
         message: "Token expirado" 
@@ -857,7 +1106,7 @@ app.get("/confirm-email/:token", async (req, res) => {
       })
     }
 
-    console.log("✅ Activando usuario ID:", confirm.userId)
+    console.log("Activando usuario ID:", confirm.userId)
 
     // Activar usuario - usar BigInt directamente sin conversión
     await prisma.usuario.update({
@@ -868,14 +1117,14 @@ app.get("/confirm-email/:token", async (req, res) => {
     // Eliminar token usado
     await prisma.confirm_token.delete({ where: { id: confirm.id } })
 
-    console.log("🎉 Usuario activado exitosamente:", confirm.usuario.email)
+    console.log("Usuario activado exitosamente:", confirm.usuario.email)
 
     return res.json({ 
       success: true, 
-      message: "✅ Cuenta activada correctamente" 
+      message: "Cuenta activada correctamente" 
     })
   } catch (err: any) {
-    console.error("❌ Error al confirmar cuenta:", err)
+    console.error("Error al confirmar cuenta:", err)
     res.status(500).json({ 
       success: false, 
       message: "Error interno del servidor al confirmar cuenta",
@@ -888,7 +1137,7 @@ app.get("/confirm-email/:token", async (req, res) => {
 
 
 // =======================================
-// 🔐 LOGIN (maneja perfil incompleto y mantiene sesión activa)
+// LOGIN (maneja perfil incompleto y mantiene sesión activa)
 // =======================================
 app.post("/login", async (req, res) => {
   try {
@@ -922,7 +1171,7 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    // ✅ Generar token JWT
+    // Generar token JWT
     const token = generateToken({
       id: Number(usuario.id),
       nombre: usuario.nombre,
@@ -945,7 +1194,7 @@ app.post("/login", async (req, res) => {
       !usuario.telefono?.trim() ||
       usuario.direccion.length === 0;
 
-    // ⚠️ Si fue creado por admin o tiene datos incompletos → redirigir a /profile
+    // Si fue creado por admin o tiene datos incompletos → redirigir a /profile
     if (faltanDatos) {
       return res.status(200).json({
         warning:
@@ -960,9 +1209,9 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    // ✅ Login normal
+    // Login normal
     res.status(200).json({
-      message: "✅ Login exitoso",
+      message: "Login exitoso",
       user: {
         id: Number(usuario.id),
         nombre: usuario.nombre,
@@ -1024,7 +1273,7 @@ app.put("/change-password", authMiddleware, async (req, res) => {
     // Opcional: invalidar token anterior (obliga a iniciar sesión de nuevo)
     res.clearCookie("token");
 
-    return res.status(200).json({ message: "✅ Contraseña actualizada correctamente" });
+    return res.status(200).json({ message: "Contraseña actualizada correctamente" });
   } catch (err) {
     console.error("Error en /change-password:", err);
     return res.status(500).json({ error: "Error al cambiar la contraseña" });
@@ -1053,8 +1302,8 @@ app.post("/forgot-password", async (req: Request, res: Response) => {
     });
 
     // Verificar variables de entorno
-    console.log("🔍 EMAIL_USER:", process.env.EMAIL_USER ? "✅ Configurado" : "❌ Falta");
-    console.log("🔍 EMAIL_PASS:", process.env.EMAIL_PASS ? "✅ Configurado" : "❌ Falta");
+    console.log("EMAIL_USER:", process.env.EMAIL_USER ? "✅ Configurado" : "❌ Falta");
+    console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "✅ Configurado" : "❌ Falta");
     
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
       return res.status(500).json({ 
@@ -1084,7 +1333,7 @@ app.post("/forgot-password", async (req: Request, res: Response) => {
 
     res.json({ message: "Correo de recuperación enviado" });
   } catch (error) {
-    console.error("❌ Error en forgot-password:", error);
+    console.error("Error en forgot-password:", error);
     
     // Más detalles del error
     if (error instanceof Error) {
@@ -1108,7 +1357,7 @@ app.post("/reset-password", async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Faltan datos requeridos" });
     }
 
-    // ✅ Validar complejidad de la contraseña
+    // Validar complejidad de la contraseña
     const strongPasswordRegex =
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[A-Za-z\d!@#$%^&*(),.?":{}|<>]{8,}$/;
 
@@ -1147,7 +1396,7 @@ app.post("/reset-password", async (req: Request, res: Response) => {
 // ==========================================
 
 // =======================================
-// 🚪 LOGOUT
+// LOGOUT
 // =======================================
 app.post("/logout", (_req, res) => {
   res.clearCookie("token", {
@@ -1158,7 +1407,7 @@ app.post("/logout", (_req, res) => {
   res.json({ message: "Sesión cerrada correctamente" });
 });
 // =======================================
-// 🧍 PERFIL (ruta protegida con token)
+// PERFIL (ruta protegida con token)
 // =======================================
 // Endpoint protegido: solo accesible si el usuario tiene cookie JWT válida
 app.get("/profile", authMiddleware, async (req, res) => {
@@ -1205,7 +1454,7 @@ app.get("/profile", authMiddleware, async (req, res) => {
 
 //--------------------------------------------------------------------
 // =======================================
-// ✏️ ACTUALIZAR PERFIL (valida teléfono si jardinero)
+// ACTUALIZAR PERFIL (valida teléfono si jardinero)
 // =======================================
 app.put("/profile", authMiddleware, async (req, res) => {
   try {
@@ -1213,7 +1462,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
     const { nombre, apellido, telefono, direcciones } = req.body;
 
     // ===============================
-    // 🔎 1️⃣ Buscar usuario
+    // Buscar usuario
     // ===============================
     const usuario = await prisma.usuario.findUnique({
       where: { id: BigInt(userData.id) },
@@ -1223,7 +1472,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
     if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
 
     // ===============================
-    // 🧩 2️⃣ Validaciones básicas
+    // Validaciones básicas
     // ===============================
     if (!nombre?.trim())
       return res.status(400).json({ error: "El nombre es obligatorio." });
@@ -1245,7 +1494,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
     }
 
     // ===============================
-    // 🏠 3️⃣ Validar direcciones
+    // Validar direcciones
     // ===============================
     const combinaciones = new Set<string>();
 
@@ -1304,7 +1553,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
     }
 
     // ===============================
-    // ✏️ 4️⃣ Actualizar datos personales
+    // Actualizar datos personales
     // ===============================
     await prisma.usuario.update({
       where: { id: BigInt(userData.id) },
@@ -1312,10 +1561,10 @@ app.put("/profile", authMiddleware, async (req, res) => {
     });
 
     // ===============================
-    // 🧱 5️⃣ Eliminar / Crear / Actualizar direcciones
+    // Eliminar / Crear / Actualizar direcciones
     // ===============================
 
-    // 1️⃣ Eliminar primero las direcciones marcadas con _delete
+    // Eliminar primero las direcciones marcadas con _delete
     for (const dir of direcciones) {
       if (dir._delete && dir.id) {
         await prisma.direccion.delete({
@@ -1324,7 +1573,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
       }
     }
 
-    // 2️⃣ Luego crear o actualizar las restantes
+    // Luego crear o actualizar las restantes
     for (const dir of direcciones) {
       if (dir._delete) continue;
 
@@ -1357,7 +1606,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
     }
 
     // ===============================
-    // 🔁 6️⃣ Devolver usuario actualizado
+    // Devolver usuario actualizado
     // ===============================
     const usuarioActualizado = await prisma.usuario.findUnique({
       where: { id: BigInt(userData.id) },
@@ -1389,7 +1638,7 @@ app.put("/profile", authMiddleware, async (req, res) => {
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // =======================================
-// 🧑‍💼 PANEL ADMIN — Gestión de usuarios 
+// PANEL ADMIN — Gestión de usuarios 
 // =======================================
 
 // Middleware: solo Admin puede acceder
@@ -1416,7 +1665,7 @@ async function verifyAdmin(req: Request, res: Response, next: any) {
   }
 }
 
-//✅ listar usuario
+//listar usuario
 app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -1445,14 +1694,14 @@ app.get("/admin/usuarios", verifyAdmin, async (_req, res) => {
 
     res.json(usuariosSafe);
   } catch (err: any) {
-    console.error("❌ Error al listar usuarios:", err.message);
+    console.error("Error al listar usuarios:", err.message);
     res.status(500).json({ error: "Error al listar usuarios" });
   }
 });
 
 
 
-// ✅ Activar / desactivar usuario
+// Activar / desactivar usuario
 app.put("/admin/usuarios/:id/estado", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1465,13 +1714,13 @@ app.put("/admin/usuarios/:id/estado", verifyAdmin, async (req, res) => {
 
     res.json({ message: `Usuario ${activo ? "activado" : "desactivado"} correctamente ✅` });
   } catch (err: any) {
-    console.error("❌ Error al actualizar estado:", err.message);
+    console.error("Error al actualizar estado:", err.message);
     res.status(500).json({ error: "Error al actualizar estado" });
   }
 });
 
 
-// ✅ Eliminar usuario
+// Eliminar usuario
 app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1484,50 +1733,50 @@ app.delete("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
 });
 
 
-// ✅ Editar usuario (con validaciones completas)
+// Editar usuario (con validaciones completas)
 app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, apellido, email, telefono, rolCodigo } = req.body;
 
-    // 🧩 Validar que quien edita sea admin
+    // Validar que quien edita sea admin
     const admin = (req as any).user;
     if (!admin || admin.rol?.codigo !== "admin") {
       return res.status(403).json({ error: "No autorizado: solo administradores." });
     }
 
-    // 🧩 Validaciones de campos obligatorios
+    // Validaciones de campos obligatorios
     if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
     if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
     if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
     if (!telefono?.trim())
       return res.status(400).json({ error: "El teléfono es obligatorio (+569XXXXXXXX)." });
 
-    // 🧩 Validar formato de teléfono chileno
+    // Validar formato de teléfono chileno
     if (!telefono.match(/^\+569\d{8}$/)) {
       return res.status(400).json({
         error: "El teléfono debe tener formato válido: +569XXXXXXXX",
       });
     }
 
-    // 🧩 Validar formato de correo
+    // Validar formato de correo
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: "Correo electrónico no válido." });
     }
 
-    // 🧩 Verificar que el usuario exista
+    // Verificar que el usuario exista
     const user = await prisma.usuario.findUnique({ where: { id: BigInt(id) } });
     if (!user) return res.status(404).json({ error: "Usuario no encontrado." });
 
-    // 🧩 Verificar duplicado de email (si cambió)
+    // Verificar duplicado de email (si cambió)
     if (email !== user.email) {
       const existing = await prisma.usuario.findUnique({ where: { email } });
       if (existing)
         return res.status(409).json({ error: "El correo electrónico ya está registrado." });
     }
 
-    // 🧩 Validar que tenga rol válido
+    // Validar que tenga rol válido
     if (!rolCodigo?.trim()) {
       return res.status(400).json({ error: "Debe seleccionar un rol para el usuario." });
     }
@@ -1537,7 +1786,7 @@ app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
       return res.status(400).json({ error: `El rol '${rolCodigo}' no existe en el sistema.` });
     }
 
-    // 🧩 Actualizar usuario
+    // Actualizar usuario
     const usuarioActualizado = await prisma.usuario.update({
       where: { id: BigInt(id) },
       data: {
@@ -1556,11 +1805,11 @@ app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
     );
 
     res.json({
-      message: "✅ Usuario actualizado correctamente.",
+      message: "Usuario actualizado correctamente.",
       usuario: safeUser,
     });
   } catch (err: any) {
-    console.error("❌ Error al editar usuario:", err.message);
+    console.error("Error al editar usuario:", err.message);
     res.status(500).json({ error: "Error al editar usuario." });
   }
 });
@@ -1568,10 +1817,10 @@ app.put("/admin/usuarios/:id", verifyAdmin, async (req, res) => {
 // =======================================
 
 // =======================================
-// 🔐 PANEL ADMIN — Gestión de Roles
+// PANEL ADMIN — Gestión de Roles
 // =======================================
 
-// ✅ Crear nuevo rol
+// Crear nuevo rol
 app.post("/admin/roles", verifyAdmin, async (req, res) => {
   try {
     const { codigo, nombre } = req.body;
@@ -1597,14 +1846,14 @@ app.post("/admin/roles", verifyAdmin, async (req, res) => {
       JSON.stringify(nuevoRol, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
     );
 
-    res.json({ message: "✅ Rol creado correctamente", rol: safeRol });
+    res.json({ message: "Rol creado correctamente", rol: safeRol });
   } catch (err: any) {
-    console.error("❌ Error al crear rol:", err.message);
+    console.error("Error al crear rol:", err.message);
     res.status(500).json({ error: "Error al crear rol." });
   }
 });
 
-// ✅ Listar roles con cantidad de usuarios asociados
+// Listar roles con cantidad de usuarios asociados
 app.get("/admin/roles", verifyAdmin, async (_req, res) => {
   try {
     const roles = await prisma.rol.findMany({
@@ -1623,12 +1872,12 @@ app.get("/admin/roles", verifyAdmin, async (_req, res) => {
 
     res.json(safeRoles);
   } catch (err: any) {
-    console.error("❌ Error al listar roles:", err.message);
+    console.error("Error al listar roles:", err.message);
     res.status(500).json({ error: "Error al listar roles." });
   }
 });
 
-// ✅ Eliminar rol
+// Eliminar rol
 app.delete("/admin/roles/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1659,14 +1908,14 @@ app.delete("/admin/roles/:id", verifyAdmin, async (req, res) => {
     // Eliminar rol
     await prisma.rol.delete({ where: { id: BigInt(id) } });
 
-    res.json({ message: "✅ Rol eliminado correctamente." });
+    res.json({ message: "Rol eliminado correctamente." });
   } catch (err: any) {
-    console.error("❌ Error al eliminar rol:", err.message);
+    console.error("Error al eliminar rol:", err.message);
     res.status(500).json({ error: "Error al eliminar rol." });
   }
 });
 
-// ✅ Actualizar rol
+// Actualizar rol
 app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1700,9 +1949,9 @@ app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
       JSON.stringify(rolActualizado, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
     );
 
-    res.json({ message: "✅ Rol actualizado correctamente", rol: safeRol });
+    res.json({ message: "Rol actualizado correctamente", rol: safeRol });
   } catch (err: any) {
-    console.error("❌ Error al actualizar rol:", err.message);
+    console.error("Error al actualizar rol:", err.message);
     res.status(500).json({ error: "Error al actualizar rol." });
   }
 });
@@ -1710,14 +1959,14 @@ app.put("/admin/roles/:id", verifyAdmin, async (req, res) => {
 
 // =======================================
 // =======================================
-// 🧑‍💼 Crear cuenta de Usuario (Admin, Jardinero, Técnico, etc.)
+// Crear cuenta de Usuario (Admin, Jardinero, Técnico, etc.)
 // =======================================
 app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
   try {
     const userData = (req as any).user;
     const { nombre, apellido, email, tipo } = req.body ?? {};
 
-    // 🔐 Solo admin puede crear
+    // Solo admin puede crear
     const admin = await prisma.usuario.findUnique({
       where: { id: BigInt(userData.id) },
       include: { rol: true },
@@ -1727,7 +1976,7 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "No autorizado: solo administradores." });
     }
 
-    // 🧩 Validaciones
+    // Validaciones
     if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
     if (!apellido?.trim()) return res.status(400).json({ error: "El apellido es obligatorio." });
     if (!email?.trim()) return res.status(400).json({ error: "El correo electrónico es obligatorio." });
@@ -1735,11 +1984,11 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) return res.status(400).json({ error: "Correo electrónico no válido." });
 
-    // 🔎 Verificar duplicado
+    // Verificar duplicado
     const existing = await prisma.usuario.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: "El correo ya está registrado." });
 
-    // 🎯 Buscar rol dinámicamente
+    // Buscar rol dinámicamente
     const rol = await prisma.rol.findUnique({ where: { codigo: tipo } });
     if (!rol) {
       return res.status(400).json({ error: `El rol '${tipo}' no existe en la base de datos.` });
@@ -1747,12 +1996,12 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
 
     const rolNombre = rol.nombre || rol.codigo;
 
-    // 🧠 Generar contraseña automática
+    // Generar contraseña automática
     const base = email.substring(0, 3);
     const password = `${base}1234`;
     const contrasena_hash = await bcrypt.hash(password, 12);
 
-    // 🧱 Crear usuario inactivo
+    // Crear usuario inactivo
     const nuevoUsuario = await prisma.usuario.create({
       data: {
         nombre,
@@ -1764,14 +2013,14 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
       },
     });
 
-    // 🕒 Crear token de confirmación
+    // Crear token de confirmación
     const token = crypto.randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + 15 * 60 * 1000);
     await prisma.confirm_token.create({
       data: { userId: nuevoUsuario.id, token, expiresAt: expires },
     });
 
-    // ✉️ Enviar correo de confirmación
+    // Enviar correo de confirmación
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
@@ -1793,7 +2042,7 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
     await transporter.sendMail({
       from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: `Confirma tu cuenta de ${rolNombre} 🌿`,
+      subject: `Confirma tu cuenta de ${rolNombre}`,
       html,
     });
 
@@ -1801,14 +2050,14 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
       message: `${rolNombre} creado. Se envió correo de confirmación.`,
     });
   } catch (err: any) {
-    console.error("❌ Error al crear usuario:", err);
+    console.error("Error al crear usuario:", err);
     res.status(500).json({ error: "Error al crear usuario", details: err.message });
   }
 });
 
 
 // =======================================
-// ✉️ Confirmar cuenta de usuario (Admin o Jardinero)
+// Confirmar cuenta de usuario (Admin o Jardinero)
 // =======================================
 app.get("/admin/confirmar-usuario/:token", async (req, res) => {
   try {
@@ -1832,7 +2081,7 @@ app.get("/admin/confirmar-usuario/:token", async (req, res) => {
 
     await prisma.confirm_token.delete({ where: { id: confirm.id } });
 
-    // ✉️ Enviar correo con credenciales
+    // Enviar correo con credenciales
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
@@ -1846,32 +2095,32 @@ app.get("/admin/confirmar-usuario/:token", async (req, res) => {
           <li><b>Correo:</b> ${user.email}</li>
           <li><b>Contraseña temporal:</b> ${user.email.substring(0,3)}1234</li>
         </ul>
-        <p>🔐 Cambia tu contraseña al iniciar sesión.</p>
+        <p>Cambia tu contraseña al iniciar sesión.</p>
         ${
           user.rol.codigo === "jardinero"
-            ? "<p>📱 Recuerda agregar tu teléfono en <b>Mi Perfil</b>.</p>"
+            ? "<p>Recuerda agregar tu teléfono en <b>Mi Perfil</b>.</p>"
             : ""
         }
-        <p>🌿 Bienvenido al equipo de Clean & Garden.</p>
+        <p>Bienvenido al equipo de Clean & Garden.</p>
       </div>
     `;
 
     await transporter.sendMail({
       from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
       to: user.email,
-      subject: `Tu cuenta de ${user.rol.nombre} está activa ✅`,
+      subject: `Tu cuenta de ${user.rol.nombre} está activa`,
       html,
     });
 
-    res.json({ message: "Cuenta confirmada y activada correctamente ✅" });
+    res.json({ message: "Cuenta confirmada y activada correctamente" });
   } catch (err: any) {
-    console.error("❌ Error al confirmar usuario:", err);
+    console.error("Error al confirmar usuario:", err);
     res.status(500).json({ error: "Error interno del servidor." });
   }
 });
 
 // =======================================
-// 🧺 PANEL ADMIN — Gestión de Insumos (Productos)
+// PANEL ADMIN — Gestión de Insumos (Productos)
 // =======================================
 
 app.get("/admin/insumos", verifyAdmin, async (_req, res) => {
@@ -1883,12 +2132,12 @@ app.get("/admin/insumos", verifyAdmin, async (_req, res) => {
     // Convertimos BigInt → Number para evitar errores en JSON
     res.json(JSON.parse(JSON.stringify(insumos, (_, v) => (typeof v === "bigint" ? Number(v) : v))));
   } catch (err: any) {
-    console.error("❌ Error al listar insumos:", err);
+    console.error("Error al listar insumos:", err);
     res.status(500).json({ error: "Error al listar insumos" });
   }
 });
 
-// ✅ Crear insumo (el estado se define automáticamente según el stock)
+// Crear insumo (el estado se define automáticamente según el stock)
 app.post("/admin/insumos", verifyAdmin, async (req, res) => {
   try {
     const { nombre, descripcion, precio_unitario, stock_actual } = req.body;
@@ -1908,21 +2157,21 @@ app.post("/admin/insumos", verifyAdmin, async (req, res) => {
         descripcion: descripcion?.trim() || null,
         precio_unitario: precio_unitario ? parseFloat(precio_unitario) : 0,
         stock_actual: stock_actual ? parseInt(stock_actual) : 0,
-        activo: Number(stock_actual) > 0, // 🔁 Se define automáticamente
+        activo: Number(stock_actual) > 0, // Se define automáticamente
       },
     });
 
     res.status(201).json({
-      message: "✅ Insumo creado correctamente",
+      message: "Insumo creado correctamente",
       insumo: JSON.parse(JSON.stringify(nuevo, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
     });
   } catch (err: any) {
-    console.error("❌ Error al crear insumo:", err.message);
+    console.error("Error al crear insumo:", err.message);
     res.status(500).json({ error: "Error al crear insumo" });
   }
 });
 
-// ✅ Actualizar insumo (estado cambia automáticamente si cambia el stock)
+// Actualizar insumo (estado cambia automáticamente si cambia el stock)
 app.put("/admin/insumos/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1944,23 +2193,23 @@ app.put("/admin/insumos/:id", verifyAdmin, async (req, res) => {
         descripcion: descripcion?.trim() || insumo.descripcion,
         precio_unitario: precio_unitario ? parseFloat(precio_unitario) : insumo.precio_unitario,
         stock_actual: nuevoStock,
-        activo: Number(nuevoStock) > 0, // ✅ TypeScript ya no reclama
+        activo: Number(nuevoStock) > 0, // TypeScript ya no reclama
         fecha_actualizacion: new Date(),
       },
     });
 
 
     res.json({
-      message: "✅ Insumo actualizado correctamente",
+      message: "Insumo actualizado correctamente",
       insumo: JSON.parse(JSON.stringify(actualizado, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
     });
   } catch (err: any) {
-    console.error("❌ Error al actualizar insumo:", err.message);
+    console.error("Error al actualizar insumo:", err.message);
     res.status(500).json({ error: "Error al actualizar insumo" });
   }
 });
 
-// ✅ Eliminar insumo
+// Eliminar insumo
 app.delete("/admin/insumos/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1970,18 +2219,18 @@ app.delete("/admin/insumos/:id", verifyAdmin, async (req, res) => {
 
     await prisma.producto.delete({ where: { id: BigInt(id) } });
 
-    res.json({ message: "🗑️ Insumo eliminado correctamente" });
+    res.json({ message: "Insumo eliminado correctamente" });
   } catch (err: any) {
-    console.error("❌ Error al eliminar insumo:", err.message);
+    console.error("Error al eliminar insumo:", err.message);
     res.status(500).json({ error: "Error al eliminar insumo" });
   }
 });
 
 // =======================================
-// 🏡 PANEL ADMIN — Gestión de Direcciones y Jardines
+// PANEL ADMIN — Gestión de Direcciones y Jardines
 // =======================================
 
-// ✅ Listar todas las direcciones con cliente y jardines asociados
+// Listar todas las direcciones con cliente y jardines asociados
 app.get("/admin/direcciones", verifyAdmin, async (_req, res) => {
   try {
     const direcciones = await prisma.direccion.findMany({
@@ -2010,17 +2259,17 @@ app.get("/admin/direcciones", verifyAdmin, async (_req, res) => {
 
     res.json(toJSONSafe(direcciones));
   } catch (err: any) {
-    console.error("❌ Error al listar direcciones:", err);
+    console.error("Error al listar direcciones:", err);
     res.status(500).json({ error: "Error al listar direcciones" });
   }
 });
 
-// ✅ Crear jardín (con validaciones completas)
+// Crear jardín (con validaciones completas)
 app.post("/admin/jardines", verifyAdmin, async (req, res) => {
   try {
     const { cliente_id, direccion_id, nombre, area_m2, tipo_suelo, descripcion } = req.body;
 
-    // 🧩 Validaciones
+    // Validaciones
     const errors: Record<string, string> = {};
 
     if (!cliente_id) errors.cliente_id = "El cliente es obligatorio";
@@ -2050,22 +2299,22 @@ app.post("/admin/jardines", verifyAdmin, async (req, res) => {
     });
 
     res.status(201).json({
-      message: "✅ Jardín creado correctamente",
+      message: "Jardín creado correctamente",
       jardin: toJSONSafe(jardin),
     });
   } catch (err: any) {
-    console.error("❌ Error al crear jardín:", err.message);
+    console.error("Error al crear jardín:", err.message);
     res.status(500).json({ error: "Error al crear jardín" });
   }
 });
 
-// ✅ Editar jardín (con validaciones completas)
+// Editar jardín (con validaciones completas)
 app.put("/admin/jardines/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, area_m2, tipo_suelo, descripcion } = req.body;
 
-    // 🧩 Validaciones
+    // Validaciones
     const errors: Record<string, string> = {};
     if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
     if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
@@ -2094,17 +2343,17 @@ app.put("/admin/jardines/:id", verifyAdmin, async (req, res) => {
     });
 
     res.json({
-      message: "✅ Jardín actualizado correctamente",
+      message: "Jardín actualizado correctamente",
       jardin: toJSONSafe(actualizado),
     });
   } catch (err: any) {
-    console.error("❌ Error al editar jardín:", err);
+    console.error("Error al editar jardín:", err);
     res.status(500).json({ error: "Error al editar jardín" });
   }
 });
 
 
-// ✅ Activar / Desactivar jardín
+// Activar / Desactivar jardín
 app.put("/admin/jardines/:id/estado", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -2121,12 +2370,12 @@ app.put("/admin/jardines/:id/estado", verifyAdmin, async (req, res) => {
       jardin: toJSONSafe(actualizado),
     });
   } catch (err: any) {
-    console.error("❌ Error al cambiar estado:", err);
+    console.error("Error al cambiar estado:", err);
     res.status(500).json({ error: "Error al cambiar estado" });
   }
 });
 
-// ✅ Eliminar jardín
+// Eliminar jardín
 app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -2136,9 +2385,9 @@ app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
 
     await prisma.jardin.delete({ where: { id: BigInt(id) } });
 
-    res.json({ message: "🗑️ Jardín eliminado correctamente" });
+    res.json({ message: "Jardín eliminado correctamente" });
   } catch (err: any) {
-    console.error("❌ Error al eliminar jardín:", err);
+    console.error("Error al eliminar jardín:", err);
     res.status(500).json({ error: "Error al eliminar jardín" });
   }
 });
@@ -2148,16 +2397,16 @@ app.delete("/admin/jardines/:id", verifyAdmin, async (req, res) => {
 
 
 // Verificar variables de entorno al inicio
-console.log("🔧 Verificando configuración...");
-console.log("📧 EMAIL_USER:", process.env.EMAIL_USER ? "✅ Configurado" : "❌ Falta");
-console.log("🔑 EMAIL_PASS:", process.env.EMAIL_PASS ? "✅ Configurado" : "❌ Falta");
-console.log("🌐 FRONTEND_URL:", process.env.FRONTEND_URL || "❌ Falta");
-console.log("💾 DATABASE_URL:", process.env.DATABASE_URL ? "✅ Configurado" : "❌ Falta");
+console.log("Verificando configuración...");
+console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Configurado" : "Falta");
+console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
+console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
 
 // Leemos el puerto desde las variables de entorno; si no, usamos 3001 por defecto
 // Convierte a Number y arranca el servidor
 const port = Number(process.env.PORT ?? 3001)
-app.listen(port, () => console.log(`🚀 API backend listening on port ${port}`))
+app.listen(port, () => console.log(`API backend listening on port ${port}`))
 
 // 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
 setInterval(async () => {
@@ -2175,11 +2424,11 @@ setInterval(async () => {
     const total = deletedConfirm.count + deletedReset.count;
     if (total > 0) {
       console.log(
-        `🧹 Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
+        `Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
       );
     }
   } catch (err) {
-    console.error("⚠️ Error limpiando tokens expirados:", err);
+    console.error("Error limpiando tokens expirados:", err);
   }
 }, 5 * 60 * 1000); // cada 5 minutos
 
