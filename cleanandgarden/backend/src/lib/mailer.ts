@@ -6,4 +6,7 @@ export const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER, // define en .env
     pass: process.env.EMAIL_PASS, // define en .env (app password)
   },
+  tls: {
+    rejectUnauthorized: false, // Permite certificados auto-firmados
+  },
 });
