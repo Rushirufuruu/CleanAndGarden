@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
 import Link from 'next/link';
@@ -10,6 +10,7 @@ interface Usuario {
   id: number;
   nombre: string;
   apellido: string;
+  rol?: string;
 }
 
 export default function ConversacionPage({
@@ -25,11 +26,20 @@ export default function ConversacionPage({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [usuarioActual, setUsuarioActual] = useState<Usuario | null>(null);
+  const [otroUsuario, setOtroUsuario] = useState<Usuario | null>(null);
 
-  // ✅ Hook que maneja historial + realtime + envío
+  // Ref para hacer scroll automático al final
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Hook que maneja historial + realtime + envío
   const { mensajes, sendMessage } = useChatRealtime(conversacionId);
 
-  // ✅ Cargar el usuario logueado
+  // Scroll automático al final cuando llegan nuevos mensajes
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [mensajes]);
+
+  // Cargar el usuario logueado
   useEffect(() => {
     fetchUsuarioActual();
   }, []);
@@ -54,12 +64,24 @@ export default function ConversacionPage({
         nombre: data.user.nombre,
         apellido: data.user.apellido,
       });
+
+      // Obtener el otroUsuario de la conversación
+      const resConversaciones = await fetch('http://localhost:3001/conversaciones', {
+        credentials: 'include',
+      });
+      if (resConversaciones.ok) {
+        const conversaciones = await resConversaciones.json();
+        const conversacionActual = conversaciones.find((conv: any) => conv.id === conversacionId);
+        if (conversacionActual) {
+          setOtroUsuario(conversacionActual.otroUsuario);
+        }
+      }
     } catch (err) {
       console.error('Error al cargar usuario:', err);
     }
   };
 
-  // ✅ Enviar mensaje con debounce para evitar doble envío
+  // Enviar mensaje con debounce para evitar doble envío
   let debounceTimeout: NodeJS.Timeout | null = null;
   const enviarMensaje = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,10 +114,41 @@ export default function ConversacionPage({
     });
   };
 
+  // Función para agrupar mensajes por fecha y agregar separadores
+  const groupMessagesByDate = (messages: any[]) => {
+    const grouped: (any | { type: 'separator', date: string })[] = [];
+    let lastDate: string | null = null;
+
+    messages.forEach((msg) => {
+      const msgDate = new Date(msg.creadoEn).toDateString();
+      if (msgDate !== lastDate) {
+        grouped.push({ type: 'separator', date: msgDate });
+        lastDate = msgDate;
+      }
+      grouped.push(msg);
+    });
+
+    return grouped;
+  };
+
+  // Función para formatear el separador de fecha
+  const formatDateSeparator = (date: string) => {
+    const today = new Date();
+    const msgDate = new Date(date);
+    const diffTime = today.getTime() - msgDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Ayer';
+    return msgDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+
+  const groupedMessages = groupMessagesByDate(mensajes);
+
   return (
     <div className="flex min-h-screen flex-col bg-[#fefaf2]">
       {/* Header */}
-      <div className="border-b bg-white p-4 shadow-sm">
+      <div className="sticky top-16 z-10 border-b bg-white p-4 shadow-sm">
         <div className="mx-auto flex max-w-4xl items-center gap-4">
           <Link
             href="/mensajes"
@@ -105,11 +158,20 @@ export default function ConversacionPage({
           </Link>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white">
-              💬
+              {otroUsuario
+                  ? `${otroUsuario.nombre[0]}${otroUsuario.apellido[0]}`
+                  : '??'}
             </div>
             <div>
               <h2 className="font-semibold text-gray-900">
-                Conversación #{conversacionId}
+                {otroUsuario && (
+                  <>
+                    {otroUsuario.nombre} {otroUsuario.apellido}
+                    {otroUsuario.rol && (
+                      <span className="italic text-gray-400 ml-1">({otroUsuario.rol})</span>
+                    )}
+                  </>
+                )}
               </h2>
             </div>
           </div>
@@ -132,7 +194,18 @@ export default function ConversacionPage({
           </div>
         ) : (
           <div className="space-y-4">
-            {mensajes.map((mensaje) => {
+            {groupedMessages.map((item, index) => {
+              if (item.type === 'separator') {
+                return (
+                  <div key={`sep-${index}`} className="text-center my-4">
+                    <span className="bg-gray-200 text-gray-600 px-3 py-1 rounded-full text-sm">
+                      {formatDateSeparator(item.date)}
+                    </span>
+                  </div>
+                );
+              }
+
+              const mensaje = item;
               const esMio =
                 usuarioActual && mensaje.remitenteId === usuarioActual.id;
 
@@ -170,6 +243,8 @@ export default function ConversacionPage({
             })}
           </div>
         )}
+        {/* Elemento invisible para hacer scroll al final */}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input de mensaje */}

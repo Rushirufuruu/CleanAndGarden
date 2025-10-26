@@ -2476,7 +2476,8 @@ app.get('/conversaciones', authMiddleware, async (req: Request, res: Response) =
                 id: true,
                 nombre: true,
                 apellido: true,
-                email: true
+                email: true,
+                rol: { select: { nombre: true } }
               }
             }
           }
@@ -2516,7 +2517,8 @@ app.get('/conversaciones', authMiddleware, async (req: Request, res: Response) =
           id: Number(otroParticipante.usuario.id),
           nombre: otroParticipante.usuario.nombre,
           apellido: otroParticipante.usuario.apellido,
-          email: otroParticipante.usuario.email
+          email: otroParticipante.usuario.email,
+          rol: otroParticipante.usuario.rol?.nombre || null
         } : null,
         fechaCreacion: conv.fecha_creacion
       };
@@ -2524,7 +2526,7 @@ app.get('/conversaciones', authMiddleware, async (req: Request, res: Response) =
 
     res.json(toJSONSafe(conversacionesFormatted));
   } catch (err) {
-    console.error('❌ Error al obtener conversaciones:', err);
+    console.error('Error al obtener conversaciones:', err);
     res.status(500).json({ error: 'Error al obtener conversaciones' });
   }
 });
@@ -2590,6 +2592,7 @@ app.get('/conversaciones/:id/mensajes', authMiddleware, async (req: Request, res
 app.post('/conversaciones', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
+    const userRol = (req as any).user.rol;
     const { otroUsuarioId } = req.body;
 
     if (!otroUsuarioId) {
@@ -2598,12 +2601,22 @@ app.post('/conversaciones', authMiddleware, async (req: Request, res: Response) 
 
     // Verificar que el otro usuario existe
     const otroUsuario = await prisma.usuario.findUnique({
-      where: { id: BigInt(otroUsuarioId) }
+      where: { id: BigInt(otroUsuarioId) },
+      include: { rol: true }
     });
 
     if (!otroUsuario) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
+
+    // Validar permisos de chat
+    if (userRol === 'cliente') {
+      // Clientes solo pueden chatear con admins o jardineros
+      if (!['admin', 'jardinero'].includes(otroUsuario.rol?.codigo)) {
+        return res.status(403).json({ error: 'No tienes permiso para iniciar conversación con este usuario' });
+      }
+    }
+    // Admins y jardineros pueden chatear con cualquiera
 
     // Buscar si ya existe una conversación entre estos dos usuarios
     const conversacionExistente = await prisma.conversacion.findFirst({
@@ -2738,6 +2751,7 @@ app.post('/mensajes', authMiddleware, async (req: Request, res: Response) => {
 app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
+    const userRol = (req as any).user.rol;
     const { query, rol } = req.query;
 
     const whereClause: any = {
@@ -2747,14 +2761,22 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
       activo: true
     };
 
-    // Si se especifica un rol, filtrar por él
+    // Aplicar restricciones de permisos
+    if (userRol === 'cliente') {
+      // Clientes solo ven admins y jardineros
+      whereClause.rol = {
+        codigo: { in: ['admin', 'jardinero'] }
+      };
+    }
+    // Admins y jardineros ven a todos
+
+    // Si se especifica un rol, filtrar por él (pero respetando permisos)
     if (rol) {
-      whereClause.usuario_rol = {
-        some: {
-          rol: {
-            codigo: rol as string
-          }
-        }
+      if (userRol === 'cliente' && !['admin', 'jardinero'].includes(rol as string)) {
+        return res.status(403).json({ error: 'No tienes permiso para buscar este tipo de usuarios' });
+      }
+      whereClause.rol = {
+        codigo: rol as string
       };
     }
 
@@ -2789,10 +2811,7 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
       nombre: u.nombre,
       apellido: u.apellido,
       email: u.email,
-      rol: u.rol ? {
-        codigo: u.rol.codigo,
-        nombre: u.rol.nombre
-      } : null
+      rol: u.rol ? u.rol.nombre : null
     }));
 
     res.json(toJSONSafe(usuariosFormatted));

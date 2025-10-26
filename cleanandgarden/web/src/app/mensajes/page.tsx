@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { MessageCircle, Search, Plus } from 'lucide-react'
 import Link from 'next/link'
@@ -10,6 +10,7 @@ interface Usuario {
   nombre: string
   apellido: string
   email: string
+  rol?: string
 }
 
 interface Conversacion {
@@ -34,9 +35,27 @@ export default function MensajesPage() {
     // Estado para usuarios disponibles y modal
     const [usuarios, setUsuarios] = useState<Usuario[]>([])
     const [showModal, setShowModal] = useState(false)
-    const [loadingUsuarios, setLoadingUsuarios] = useState(false)
+  const [loadingUsuarios, setLoadingUsuarios] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const socketRef = useRef<WebSocket | null>(null)
+  const [mensajesNoLeidos, setMensajesNoLeidos] = useState<Record<number, number>>({})
 
-  // 🔹 1. Verificar sesión apenas carga
+  // Cargar contadores desde localStorage al inicializar
+  useEffect(() => {
+    const saved = localStorage.getItem('mensajesNoLeidos')
+    if (saved) {
+      try {
+        setMensajesNoLeidos(JSON.parse(saved))
+      } catch (err) {
+        console.error('Error cargando contadores de localStorage:', err)
+      }
+    }
+  }, [])
+
+  // Guardar contadores en localStorage cuando cambien
+  useEffect(() => {
+    localStorage.setItem('mensajesNoLeidos', JSON.stringify(mensajesNoLeidos))
+  }, [mensajesNoLeidos])  // Verificar sesión apenas carga
   useEffect(() => {
     const verificarSesion = async () => {
       try {
@@ -44,6 +63,9 @@ export default function MensajesPage() {
           credentials: 'include',
         })
         if (!res.ok) {
+          // Limpiar contadores si no hay sesión válida
+          localStorage.removeItem('mensajesNoLeidos')
+          setMensajesNoLeidos({})
           router.push('/login')
           return
         }
@@ -52,12 +74,66 @@ export default function MensajesPage() {
         fetchConversaciones()
       } catch (err) {
         console.error('Error al verificar sesión:', err)
+        // Limpiar contadores en caso de error
+        localStorage.removeItem('mensajesNoLeidos')
+        setMensajesNoLeidos({})
         router.push('/login')
       }
     }
 
     verificarSesion()
   }, [router])
+
+  // WebSocket para actualizar conversaciones en tiempo real
+  useEffect(() => {
+    const socket = new WebSocket('ws://localhost:3001/ws')
+    socketRef.current = socket
+
+    socket.onopen = () => {
+      console.log('Conectado al WebSocket en conversaciones')
+    }
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.tipo === 'mensaje') {
+          // Actualizar la conversación correspondiente
+          setConversaciones((prev) =>
+            prev.map((conv) => {
+              if (conv.id === msg.conversacionId) {
+                return {
+                  ...conv,
+                  ultimoMensaje: {
+                    cuerpo: msg.cuerpo,
+                    fecha: msg.creadoEn,
+                    esMio: msg.remitenteId === usuarioActual?.id,
+                  },
+                }
+              }
+              return conv
+            })
+          )
+
+          // Si el mensaje no es mío, incrementar contador de no leídos
+          if (msg.remitenteId !== usuarioActual?.id) {
+            setMensajesNoLeidos((prev) => ({
+              ...prev,
+              [msg.conversacionId]: (prev[msg.conversacionId] || 0) + 1,
+            }))
+          }
+        }
+      } catch (err) {
+        console.error('Error procesando mensaje WebSocket:', err)
+      }
+    }
+
+    socket.onerror = (err) => console.error('Error WebSocket:', err)
+    socket.onclose = () => console.log('WebSocket cerrado en conversaciones')
+
+    return () => {
+      socket.close()
+    }
+  }, [usuarioActual?.id])
 
     // Traer usuarios disponibles para nueva conversación
     const fetchUsuarios = async () => {
@@ -77,7 +153,7 @@ export default function MensajesPage() {
       }
     };
 
-  // 🔹 2. Traer conversaciones
+  // Traer conversaciones
   const fetchConversaciones = async () => {
     try {
       const res = await fetch('http://localhost:3001/conversaciones', {
@@ -94,6 +170,16 @@ export default function MensajesPage() {
 
       const data = await res.json()
       setConversaciones(data)
+
+      // Limpiar contadores de conversaciones que ya no existen
+      setMensajesNoLeidos((prev) => {
+        const nuevasConversacionesIds = data.map((conv: Conversacion) => conv.id)
+        const nuevosContadores: Record<number, number> = {}
+        nuevasConversacionesIds.forEach((id: number) => {
+          nuevosContadores[id] = prev[id] || 0
+        })
+        return nuevosContadores
+      })
     } catch (err) {
       console.error('Error:', err)
       setError('No se pudieron cargar las conversaciones')
@@ -102,7 +188,20 @@ export default function MensajesPage() {
     }
   }
 
-  // 🔹 3. Crear nueva conversación (redirige automáticamente)
+  // Resetear contador de mensajes no leídos para una conversación
+  const resetMensajesNoLeidos = (conversacionId: number) => {
+    setMensajesNoLeidos((prev) => ({
+      ...prev,
+      [conversacionId]: 0,
+    }))
+  }
+
+  // Función para manejar click en conversación
+  const handleConversacionClick = (conversacionId: number) => {
+    resetMensajesNoLeidos(conversacionId)
+  }
+
+  // Crear nueva conversación (redirige automáticamente)
   // Abre el modal y carga usuarios
   const handleAbrirModal = () => {
     setShowModal(true);
@@ -128,22 +227,25 @@ export default function MensajesPage() {
     }
   };
 
-  // 🔹 4. Formatear fecha
+  // Formatear fecha
   const formatFecha = (fecha: string) => {
     const ahora = new Date()
     const fechaMensaje = new Date(fecha)
-    const diff = ahora.getTime() - fechaMensaje.getTime()
-    const horas = Math.floor(diff / (1000 * 60 * 60))
+    const diffMs = ahora.getTime() - fechaMensaje.getTime()
+    const diffMinutes = Math.floor(diffMs / (1000 * 60))
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-    if (horas < 1) {
+    if (diffMinutes < 1) {
       return 'Hace un momento'
-    } else if (horas < 24) {
-      return `Hace ${horas}h`
+    } else if (diffMinutes < 60) {
+      return `Hace ${diffMinutes} minuto${diffMinutes === 1 ? '' : 's'}`
+    } else if (diffHours < 24) {
+      return `Hace ${diffHours} hora${diffHours === 1 ? '' : 's'}`
+    } else if (diffHours < 48) {
+      return 'Ayer'
     } else {
-      return fechaMensaje.toLocaleDateString('es-ES', {
-        day: 'numeric',
-        month: 'short',
-      })
+      return `Hace ${diffDays} día${diffDays === 1 ? '' : 's'}`
     }
   }
 
@@ -178,6 +280,8 @@ export default function MensajesPage() {
           <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar conversaciones..."
             className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:border-[#2E5430] focus:outline-none focus:ring-2 focus:ring-[#2E5430]/20"
           />
@@ -209,25 +313,52 @@ export default function MensajesPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {conversaciones.map((conv) => (
+            {conversaciones
+              .sort((a, b) => {
+                // Ordenar por fecha del último mensaje, o fecha de creación si no hay mensajes
+                const fechaA = a.ultimoMensaje
+                  ? new Date(a.ultimoMensaje.fecha).getTime()
+                  : new Date(a.fechaCreacion).getTime()
+                const fechaB = b.ultimoMensaje
+                  ? new Date(b.ultimoMensaje.fecha).getTime()
+                  : new Date(b.fechaCreacion).getTime()
+                return fechaB - fechaA // Descendente: más reciente primero
+              })
+              .filter((conv) =>
+                conv.otroUsuario &&
+                `${conv.otroUsuario.nombre} ${conv.otroUsuario.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
+              )
+              .map((conv) => (
               <Link
                 key={conv.id}
                 href={`/mensajes/${conv.id}`}
+                onClick={() => handleConversacionClick(conv.id)}
                 className="block rounded-lg bg-white p-4 shadow-sm transition-all hover:shadow-md"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       {/* Avatar */}
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white">
+                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white">
                         {conv.otroUsuario
                           ? `${conv.otroUsuario.nombre[0]}${conv.otroUsuario.apellido[0]}`
                           : '??'}
+                        {/* Indicador de mensajes no leídos */}
+                        {mensajesNoLeidos[conv.id] > 0 && (
+                          <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                            {mensajesNoLeidos[conv.id] > 99 ? '99+' : mensajesNoLeidos[conv.id]}
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-gray-900">
                           {conv.otroUsuario
-                            ? `${conv.otroUsuario.nombre} ${conv.otroUsuario.apellido}`
+                            ? <>
+                                {conv.otroUsuario.nombre} {conv.otroUsuario.apellido}
+                                {conv.otroUsuario.rol && (
+                                  <span className="italic text-gray-400 ml-2"> ({conv.otroUsuario.rol})</span>
+                                )}
+                              </>
                             : 'Usuario desconocido'}
                         </h3>
                         {conv.ultimoMensaje ? (
@@ -271,7 +402,12 @@ export default function MensajesPage() {
                 <ul className="mb-4 max-h-64 overflow-y-auto divide-y">
                   {usuarios.map((u) => (
                     <li key={u.id} className="py-2 flex items-center justify-between">
-                      <span>{u.nombre} {u.apellido}</span>
+                      <span>
+                        {u.nombre} {u.apellido}
+                        {u.rol && (
+                          <span className="italic text-gray-400 ml-1">({u.rol})</span>
+                        )}
+                      </span>
                       <button
                         onClick={() => handleCrearConversacion(u.id)}
                         className="rounded bg-[#2E5430] px-3 py-1 text-white hover:bg-[#234624]"
