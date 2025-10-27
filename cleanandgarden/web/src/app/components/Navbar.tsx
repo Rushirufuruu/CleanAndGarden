@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
-import { Settings, UserPlus, BarChart3, ShieldCheck, User } from "lucide-react";
+import { Settings, UserPlus, BarChart3, ShieldCheck, User, Wrench, Images } from "lucide-react";
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -141,7 +141,7 @@ export default function Navbar() {
 
   return (
     <div className="navbar shadow-md px-6 py-2 sticky top-0 z-50 bg-[#f5e9d7]">
-      {/* 🌿 Logo + Info usuario */}
+      {/* Logo + Info usuario */}
       <div className="navbar-start flex items-center gap-4">
         <Link href="/">
           <Image
@@ -154,7 +154,7 @@ export default function Navbar() {
           />
         </Link>
 
-        {/* 🧍 Info usuario */}
+        {/*  Info usuario */}
         {isLoggedIn && userName && userRole && (
           <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-lg border border-gray-200 shadow-sm">
             <User className="text-[#2E5430]" size={20} />
@@ -166,7 +166,7 @@ export default function Navbar() {
         )}
       </div>
 
-      {/* 🌸 Menú principal */}
+      {/* Menú principal */}
       <div className="navbar-center hidden lg:flex">
         <ul className="menu menu-horizontal px-1 gap-1">
           <li><Link href="/">Inicio</Link></li>
@@ -218,6 +218,24 @@ export default function Navbar() {
                     </Link>
                   </li>
                   <li>
+                    <Link
+                      href="/admin/crud-services"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <Wrench size={18} /> Gestión de Servicios
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/crud-portfolio"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                      <Images size={18} /> Gestión de Portafolio
+                    </Link>
+                  </li>
+                  <li>
                     <span className="flex items-center gap-2 px-4 py-2 text-gray-400 cursor-not-allowed">
                       <BarChart3 size={18} /> (Más opciones pronto)
                     </span>
@@ -229,7 +247,7 @@ export default function Navbar() {
         </ul>
       </div>
 
-      {/* 🔒 Botones sesión */}
+      {/* Botones sesión */}
       <div className="navbar-end hidden lg:flex space-x-3">
         {!isLoggedIn ? (
           <>
@@ -246,6 +264,14 @@ export default function Navbar() {
           </>
         ) : (
           <>
+            <Link href="/mensajes">
+              <span
+                className="btn rounded-lg"
+                style={{ backgroundColor: "#4a7e49", color: "#fff", border: "none" }}
+              >
+                Mensajes
+              </span>
+            </Link>
             <Link href="/profile">
               <span className="btn rounded-lg bg-[#2E5430] text-white border-none">
                 Mi Perfil
@@ -261,7 +287,7 @@ export default function Navbar() {
         )}
       </div>
 
-      {/* ✨ Animación */}
+      {/* Animación */}
       <style jsx>{`
         @keyframes fadeIn {
           from {
@@ -277,6 +303,72 @@ export default function Navbar() {
           animation: fadeIn 0.25s ease-in-out;
         }
       `}</style>
+      {/* Menú móvil */}
+      <div className="lg:hidden navbar-end" style={{ backgroundColor: "#f5e9d7" }}>
+        <div className="dropdown dropdown-end">
+          <label tabIndex={0} className="btn btn-ghost btn-circle">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </label>
+          <ul
+            tabIndex={0}
+            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow rounded-box w-52"
+            style={{ backgroundColor: "#f5e9d7" }}
+          >
+            <li><Link href="/">Inicio</Link></li>
+            <li><Link href="/about-us">Quienes Somos</Link></li>
+            <li><Link href="/our-services">Servicios</Link></li>
+            <li><Link href="/portfolio">Portafolio</Link></li>
+            <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+            {!isLoggedIn ? (
+              <li>
+                <Link href="/login">
+                  <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                    Regístrate o inicia sesión
+                  </span>
+                </Link>
+              </li>
+            ) : (
+              <>
+                <li>
+                  <Link href="/mensajes">
+                    <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                      Mensajes
+                    </span>
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/profile">
+                    <span className="btn rounded-lg w-full bg-[#4a7e49] text-white border-none">
+                      Mi Perfil
+                    </span>
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    onClick={handleLogout}
+                    className="btn rounded-lg w-full bg-[#b93b3b] text-white border-none"
+                  >
+                    Cerrar Sesión
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

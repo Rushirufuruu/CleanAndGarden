@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import ServicesList from "../components/our-services/ServicesList";
 import ServicesCTA from "../components/our-services/ServicesCTA";
 import { Service } from "../components/our-services/ServiceCard";
+import { supabase } from "@/lib/supabase";
 
 export default function OurServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -13,17 +14,83 @@ export default function OurServicesPage() {
     const fetchServices = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('http://localhost:3001/servicios');
+        setError(null);
         
-        if (!response.ok) {
-          throw new Error('Error al cargar los servicios');
+        console.log('🔍 Consultando servicios desde Supabase...');
+        
+        // Consultar servicios activos desde Supabase
+        const { data, error } = await supabase
+          .from("servicio")
+          .select("id, nombre, descripcion, precio_clp, activo, imagen_id")
+          .eq("activo", true)
+          .limit(10);
+
+        console.log('📦 Datos recibidos:', data);
+        console.log('❌ Error:', error);
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          console.log('⚠️ No hay servicios activos');
+          setServices([]);
+          return;
         }
-        
-        const data = await response.json();
-        setServices(data);
+
+        console.log(`✅ Encontrados ${data.length} servicios activos`);
+
+        // Obtener las URLs de las imágenes
+        const imageIds = data
+          .map(item => item.imagen_id)
+          .filter(id => id !== null);
+
+        console.log('🖼️ Image IDs a consultar:', imageIds);
+        console.log('🖼️ Servicios con imagen_id:', data.map(s => ({ nombre: s.nombre, imagen_id: s.imagen_id })));
+
+        let imageUrls: Record<number, string> = {};
+        if (imageIds.length > 0) {
+          // Primero verificar si existen registros en la tabla imagen
+          const { data: allImages, error: allImagesError } = await supabase
+            .from('imagen')
+            .select('id, url_publica')
+            .limit(5);
+
+          console.log('🖼️ Primeras imágenes en la tabla:', allImages);
+          console.log('🖼️ Error al consultar todas:', allImagesError);
+
+          const { data: images, error: imageError } = await supabase
+            .from('imagen')
+            .select('id, url_publica')
+            .in('id', imageIds);
+
+          console.log('🖼️ Imágenes obtenidas:', images);
+          console.log('🖼️ Error imágenes:', imageError);
+
+          if (images && !imageError) {
+            imageUrls = images.reduce((acc: Record<number, string>, img: any) => {
+              acc[img.id] = img.url_publica;
+              return acc;
+            }, {});
+          }
+        }
+
+        console.log('🖼️ Mapa de URLs:', imageUrls);
+
+        // Transformar datos al formato esperado
+        const serviciosFormateados: Service[] = data.map((item: any) => ({
+          id: item.id.toString(),
+          title: item.nombre,
+          description: item.descripcion || '',
+          precio: item.precio_clp || 0,
+          imageUrl: item.imagen_id && imageUrls[item.imagen_id] 
+            ? imageUrls[item.imagen_id] 
+            : '/images/placeholder.jpg'
+        }));
+
+        console.log('✨ Servicios formateados:', serviciosFormateados);
+        setServices(serviciosFormateados);
       } catch (err) {
-        console.error('Error fetching services:', err);
-        setError(err instanceof Error ? err.message : 'Error desconocido');
+        console.error('❌ Error fetching services:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar los servicios');
       } finally {
         setIsLoading(false);
       }
@@ -70,7 +137,7 @@ export default function OurServicesPage() {
           <div className="text-center text-red-600 mb-10">
             <p className="text-xl mb-4">⚠️ {error}</p>
             <p className="text-gray-600">
-              Por favor, asegúrate de que el servidor esté ejecutándose en http://localhost:3001
+              No se pudieron cargar los servicios
             </p>
             <button 
               onClick={() => window.location.reload()} 

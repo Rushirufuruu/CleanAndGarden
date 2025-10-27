@@ -4,8 +4,18 @@ import { useEffect, useState } from "react";
 import Swal from "sweetalert2";
 import { Plus, Edit2, Trash2, Search } from "lucide-react";
 
+interface Insumo {
+  id: number;
+  nombre: string;
+  descripcion?: string;
+  precio_unitario?: number;
+  stock_actual?: number;
+  activo?: boolean;
+  estado?: "Disponible" | "No Disponible";
+}
+
 export default function GestionInsumos() {
-  const [insumos, setInsumos] = useState<any[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [estadoFiltro, setEstadoFiltro] = useState<
@@ -28,6 +38,7 @@ export default function GestionInsumos() {
       const data = await res.json();
       setInsumos(data);
     } catch (err) {
+      console.error("Error al cargar insumos:", err);
       Swal.fire("Error", "No se pudieron cargar los insumos", "error");
     } finally {
       setLoading(false);
@@ -76,7 +87,7 @@ export default function GestionInsumos() {
     const data = await res.json();
 
     if (res.ok) {
-      Swal.fire("✅ Éxito", data.message, "success");
+      Swal.fire("Éxito", data.message, "success");
       limpiarFormulario();
       fetchInsumos();
     } else {
@@ -84,13 +95,13 @@ export default function GestionInsumos() {
     }
   };
 
-  const handleEdit = (i: any) => {
+  const handleEdit = (i: Insumo) => {
     setEditId(i.id);
     setForm({
       nombre: i.nombre,
       descripcion: i.descripcion || "",
-      precio_unitario: i.precio_unitario || "",
-      stock_actual: i.stock_actual || "",
+      precio_unitario: i.precio_unitario?.toString() || "",
+      stock_actual: i.stock_actual?.toString() || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -154,7 +165,7 @@ export default function GestionInsumos() {
           <select
             className="border p-2 rounded-lg w-full md:w-auto"
             value={estadoFiltro}
-            onChange={(e) => setEstadoFiltro(e.target.value as any)}
+            onChange={(e) => setEstadoFiltro(e.target.value as typeof estadoFiltro)}
           >
             <option value="todos">Todos</option>
             <option value="Disponible">Disponible</option>
@@ -227,7 +238,7 @@ export default function GestionInsumos() {
           </div>
         </form>
 
-        {/* 📋 Tabla */}
+        {/* Tabla */}
         {loading ? (
           <p className="text-center text-gray-500">Cargando insumos...</p>
         ) : (
@@ -262,12 +273,12 @@ export default function GestionInsumos() {
                     <td className="p-3 text-center">
                       <span
                         className={`px-2 py-1 rounded-full text-sm ${
-                          i.stock_actual > 0
+                          (i.stock_actual ?? 0) > 0
                             ? "bg-green-100 text-green-700"
                             : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {i.stock_actual > 0 ? "Disponible" : "No disponible"}
+                        {(i.stock_actual ?? 0) > 0 ? "Disponible" : "No disponible"}
                       </span>
                     </td>
                     <td className="p-3 flex justify-center gap-3">

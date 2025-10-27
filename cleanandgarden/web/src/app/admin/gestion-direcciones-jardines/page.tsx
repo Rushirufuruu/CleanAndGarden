@@ -4,8 +4,34 @@ import { useEffect, useState, useRef } from "react";
 import Swal from "sweetalert2";
 import { Plus, Edit2, Power, Trash2, Home } from "lucide-react";
 
+interface Jardin {
+  id: number;
+  nombre: string;
+  area_m2?: number;
+  tipo_suelo?: string;
+  descripcion?: string;
+  activo: boolean;
+}
+
+interface Direccion {
+  id: number;
+  calle: string;
+  comuna: { 
+    nombre: string;
+    region?: { nombre: string };
+  };
+  cliente_id: number;
+  usuario?: {
+    id: number;
+    nombre: string;
+    apellido: string;
+    email: string;
+  };
+  jardin: Jardin[];
+}
+
 export default function GestionDireccionesJardines() {
-  const [direcciones, setDirecciones] = useState<any[]>([]);
+  const [direcciones, setDirecciones] = useState<Direccion[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     cliente_id: "",
@@ -20,7 +46,7 @@ export default function GestionDireccionesJardines() {
   const [showForm, setShowForm] = useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
 
-  // 🔄 Obtener direcciones
+  //  Obtener direcciones
   const fetchDirecciones = async () => {
     setLoading(true);
     try {
@@ -41,14 +67,14 @@ export default function GestionDireccionesJardines() {
     fetchDirecciones();
   }, []);
 
-  // ✏️ Editar jardín
-  const handleEdit = (jardin: any, direccion_id: number, cliente_id: number) => {
+  //  Editar jardín
+  const handleEdit = (jardin: Jardin, direccion_id: number, cliente_id: number) => {
     setEditId(jardin.id);
     setForm({
       cliente_id: cliente_id.toString(),
       direccion_id: direccion_id.toString(),
       nombre: jardin.nombre,
-      area_m2: jardin.area_m2 || "",
+      area_m2: jardin.area_m2?.toString() || "",
       tipo_suelo: jardin.tipo_suelo || "",
       descripcion: jardin.descripcion || "",
     });
@@ -58,12 +84,12 @@ export default function GestionDireccionesJardines() {
     }, 150);
   };
 
-  // 💾 Crear / Editar jardín
+  // Crear / Editar jardín
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
 
-    // 🧩 Validaciones locales
+    //  Validaciones locales
     const newErrors: Record<string, string> = {};
     if (!form.nombre.trim()) newErrors.nombre = "El nombre del jardín es obligatorio";
     if (!form.area_m2 || isNaN(parseFloat(form.area_m2)) || parseFloat(form.area_m2) <= 0)
@@ -108,7 +134,7 @@ export default function GestionDireccionesJardines() {
       setShowForm(false);
       fetchDirecciones();
     } else if (data.errors) {
-      // ⚠️ Muestra errores específicos del backend
+      //  Muestra errores específicos del backend
       setErrors(data.errors);
       const lista = Object.values(data.errors).join("<br>");
       Swal.fire({
@@ -121,7 +147,7 @@ export default function GestionDireccionesJardines() {
     }
   };
 
-  // 🔁 Cambiar estado
+  // Cambiar estado
   const toggleActivo = async (id: number) => {
     const res = await fetch(`http://localhost:3001/admin/jardines/${id}/estado`, {
       method: "PUT",
@@ -137,7 +163,7 @@ export default function GestionDireccionesJardines() {
     }
   };
 
-  // 🗑️ Eliminar
+  //  Eliminar
   const handleDelete = async (id: number) => {
     const confirm = await Swal.fire({
       title: "¿Eliminar jardín?",
@@ -171,7 +197,7 @@ export default function GestionDireccionesJardines() {
           <Home /> Gestión de Direcciones y Jardines
         </h1>
 
-        {/* 🧾 Formulario */}
+        {/*  Formulario */}
         {showForm && (
           <form
             ref={formRef}
@@ -179,7 +205,7 @@ export default function GestionDireccionesJardines() {
             className="bg-white rounded-xl p-6 mb-8 shadow-inner border border-[#CBB896]"
           >
             <h2 className="text-xl font-semibold mb-4 text-[#2E5430]">
-              {editId ? "✏️ Editar Jardín" : "➕ Crear nuevo Jardín"}
+              {editId ? "Editar Jardín" : " Crear nuevo Jardín"}
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -202,7 +228,7 @@ export default function GestionDireccionesJardines() {
                 )}
               </div>
 
-              {/* Área con ayuda 💡 */}
+              {/* Área con ayuda  */}
               <div>
                 <div className="flex items-center gap-2">
                   <input
@@ -218,7 +244,7 @@ export default function GestionDireccionesJardines() {
                         setErrors((prev) => ({ ...prev, area_m2: "" }));
                     }}
                   />
-                  {/* 💡 Botón de ayuda */}
+                  {/* Botón de ayuda */}
                   <button
                     type="button"
                     onClick={() => {
@@ -244,7 +270,7 @@ export default function GestionDireccionesJardines() {
                     className="text-[#2E5430] hover:text-[#254526] text-lg"
                     title="¿Cómo calcular el área?"
                   >
-                    💡
+                    
                   </button>
                 </div>
                 {errors.area_m2 && (
@@ -323,7 +349,7 @@ export default function GestionDireccionesJardines() {
           </form>
         )}
 
-        {/* 📋 Listado */}
+        {/*  Listado */}
         {loading ? (
           <p className="text-center text-gray-500">Cargando direcciones...</p>
         ) : (
@@ -350,7 +376,7 @@ export default function GestionDireccionesJardines() {
                   <button
                     onClick={() => {
                       setForm({
-                        cliente_id: dir.usuario.id.toString(),
+                        cliente_id: dir.usuario?.id.toString() || "",
                         direccion_id: dir.id.toString(),
                         nombre: "",
                         area_m2: "",
@@ -408,7 +434,7 @@ export default function GestionDireccionesJardines() {
                           </td>
                           <td className="p-2 flex justify-center gap-3">
                             <button
-                              onClick={() => handleEdit(j, dir.id, dir.usuario.id)}
+                              onClick={() => handleEdit(j, dir.id, dir.usuario?.id || 0)}
                               title="Editar"
                               className="text-blue-700 hover:text-blue-900"
                             >

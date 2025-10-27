@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react"; // 👁️ iconos
+import { Eye, EyeOff } from "lucide-react"; 
 
 interface Region {
   id: string;
