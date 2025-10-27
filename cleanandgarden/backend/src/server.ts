@@ -1983,15 +1983,7 @@ app.get("/admin/disponibilidad/usuarios", verifyAdmin, async (req, res) => {
 //  POST generar disponibilidad mensual
 const fetch = globalThis.fetch;
 
-// =======================================
-// 🗓️ PANEL ADMIN — Generar disponibilidad mensual (versión final verificada)
-// =======================================
-// =======================================
-// 🗓️ Generación de disponibilidad mensual (bloquea solo feriados irrenunciables)
-// =======================================
-// =======================================
-// 🗓️ Generar disponibilidad mensual — bloquea automáticamente feriados irrenunciables
-// =======================================
+
 // =======================================
 // 🗓️ PANEL ADMIN — Generar disponibilidad mensual (versión final)
 // =======================================
@@ -2235,6 +2227,290 @@ app.put("/admin/disponibilidad-mensual/:id", verifyAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ Error al actualizar slot:", err);
     res.status(500).json({ error: "Error al actualizar slot." });
+  }
+});
+// =======================================
+// 🧭 PANEL ADMIN — Excepciones de Disponibilidad de horarios
+// =======================================
+
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+const TZ = "America/Santiago";
+
+// 🧠 Tipos válidos de excepción
+const EXCEPTION_TYPES = [
+  "dia_completo",
+  "feriado_irrenunciable",
+  "vacaciones",
+  "licencia",
+  "permiso",
+];
+
+// ==============================
+// 📅 Helpers de fecha
+// ==============================
+function startOfDayCL(d: string | Date): Date {
+  const base = typeof d === "string" ? dayjs.tz(`${d}T00:00:00`, TZ) : dayjs(d).tz(TZ);
+  return base.startOf("day").toDate();
+}
+
+function endOfDayCL(d: string | Date): Date {
+  const base = typeof d === "string" ? dayjs.tz(`${d}T00:00:00`, TZ) : dayjs(d).tz(TZ);
+  return base.endOf("day").toDate();
+}
+
+function listDatesYYYYMMDD(desde: string, hasta: string): string[] {
+  const out: string[] = [];
+  let cur = dayjs.tz(`${desde}T00:00:00`, TZ);
+  const end = dayjs.tz(`${hasta}T00:00:00`, TZ);
+  while (cur.isSame(end) || cur.isBefore(end)) {
+    out.push(cur.format("YYYY-MM-DD"));
+    cur = cur.add(1, "day");
+  }
+  return out;
+}
+
+function buildMotivo(tipo: string, tecnico?: { nombre?: string | null; apellido?: string | null }): string {
+  switch (tipo) {
+    case "dia_completo":
+      return "Día completo: no se trabaja";
+    case "feriado_irrenunciable":
+      return "Feriado irrenunciable";
+    case "vacaciones":
+      return `Vacaciones${tecnico ? `: ${tecnico.nombre ?? ""} ${tecnico.apellido ?? ""}` : ""}`.trim();
+    case "licencia":
+      return `Licencia${tecnico ? `: ${tecnico.nombre ?? ""} ${tecnico.apellido ?? ""}` : ""}`.trim();
+    case "permiso":
+      return `Permiso${tecnico ? `: ${tecnico.nombre ?? ""} ${tecnico.apellido ?? ""}` : ""}`.trim();
+    default:
+      return tipo;
+  }
+}
+
+// ============================================================
+// 🧩 ENDPOINT: Listar trabajadores con horarios asignados
+// ============================================================
+app.get("/admin/trabajadores-con-horarios", verifyAdmin, async (_req, res) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        rol: { disponibilidad_servicio: true },
+        disponibilidad_mensual: { some: {} },
+      },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        rol: { select: { codigo: true, nombre: true } },
+      },
+      orderBy: { nombre: "asc" },
+    });
+
+    res.json(
+      JSON.parse(JSON.stringify(usuarios, (_, v) => (typeof v === "bigint" ? Number(v) : v)))
+    );
+  } catch (err) {
+    console.error("❌ Error al obtener trabajadores con horarios:", err);
+    res.status(500).json({ error: "Error al obtener trabajadores con horarios" });
+  }
+});
+
+// ============================================================
+// 🧩 ENDPOINT: Crear excepciones (por técnico o global)
+// ============================================================
+// ============================================================
+// 🧩 ENDPOINT: Crear excepciones (por técnico o global)
+// ============================================================
+// ============================================================
+// 🧩 ENDPOINT: Crear excepciones (sin callback de transacción)
+// ============================================================
+app.post("/admin/excepciones", verifyAdmin, async (req, res) => {
+  try {
+    const { tipo, fecha, rango, tecnico_id, descripcion } = req.body;
+    const adminId = (req as any).user?.id ?? null;
+
+    const EXCEPTION_TYPES = [
+      "feriado_irrenunciable",
+      "dia_completo",
+      "vacaciones",
+      "licencia",
+      "permiso",
+    ];
+
+    if (!tipo || !EXCEPTION_TYPES.includes(tipo)) {
+      return res.status(400).json({ error: "Tipo de excepción inválido" });
+    }
+    if (!fecha && !rango) {
+      return res
+        .status(400)
+        .json({ error: "Debes enviar 'fecha' o {rango:{desde,hasta}}" });
+    }
+
+    let tecnico = null;
+    if (tecnico_id) {
+      tecnico = await prisma.usuario.findUnique({
+        where: { id: BigInt(tecnico_id) },
+        select: { nombre: true, apellido: true },
+      });
+      if (!tecnico)
+        return res.status(404).json({ error: "Técnico no encontrado" });
+    }
+
+    // ========================================================
+    // 🟢 Caso: Día único (feriado / día completo)
+    // ========================================================
+    if (["feriado_irrenunciable", "dia_completo"].includes(tipo)) {
+      const fechaCL = startOfDayCL(fecha);
+
+      const existeHorario = await prisma.disponibilidad_mensual.count({
+        where: { fecha: fechaCL },
+      });
+      if (existeHorario === 0) {
+        throw new Error(
+          "No existen horarios registrados en esa fecha. No se creó la excepción."
+        );
+      }
+
+      // 🔒 Ejecutar ambas operaciones dentro de una transacción sin callback
+      await prisma.$transaction([
+        prisma.disponibilidad_excepcion.create({
+          data: {
+            tipo,
+            fecha: fechaCL,
+            disponible: false,
+            motivo: buildMotivo(tipo),
+            descripcion: descripcion ?? null,
+            creado_por: adminId ? BigInt(adminId) : null,
+          },
+        }),
+        prisma.disponibilidad_mensual.deleteMany({
+          where: { fecha: fechaCL },
+        }),
+      ]);
+    }
+
+    // ========================================================
+    // 🟦 Caso: Vacaciones / Licencia / Permiso
+    // ========================================================
+    else {
+      if (!rango?.desde || !rango?.hasta || !tecnico_id) {
+        throw new Error("Debe indicar rango {desde,hasta} y técnico");
+      }
+
+      const fechas = listDatesYYYYMMDD(rango.desde, rango.hasta);
+
+      const existeHorario = await prisma.disponibilidad_mensual.count({
+        where: {
+          tecnico_id: BigInt(tecnico_id),
+          fecha: { in: fechas.map((f) => startOfDayCL(f)) },
+        },
+      });
+
+      if (existeHorario === 0) {
+        throw new Error(
+          "El técnico no tiene horarios en el rango seleccionado. No se creó la excepción."
+        );
+      }
+
+      const creaciones = fechas.map((f) =>
+        prisma.disponibilidad_excepcion.create({
+          data: {
+            tipo,
+            fecha: startOfDayCL(f),
+            disponible: false,
+            motivo: buildMotivo(tipo, tecnico ?? undefined),
+            descripcion: descripcion ?? null,
+            tecnico_id: BigInt(tecnico_id),
+            creado_por: adminId ? BigInt(adminId) : null,
+          },
+        })
+      );
+
+      const eliminacion = prisma.disponibilidad_mensual.deleteMany({
+        where: {
+          tecnico_id: BigInt(tecnico_id),
+          fecha: { in: fechas.map((f) => startOfDayCL(f)) },
+        },
+      });
+
+      // 🔒 Transacción en lote
+      await prisma.$transaction([...creaciones, eliminacion]);
+    }
+
+    res.json({
+      ok: true,
+      message: "Excepción aplicada y horarios eliminados correctamente.",
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear excepción:", err);
+    res.status(400).json({
+      error:
+        err.message ||
+        "Error al crear excepción. Si el problema persiste, reinicia el servidor.",
+    });
+  }
+});
+
+
+
+
+// ============================================================
+// 🧩 ENDPOINT: Listar excepciones
+// ============================================================
+app.get("/admin/excepciones", verifyAdmin, async (_req, res) => {
+  try {
+    const excepciones = await prisma.disponibilidad_excepcion.findMany({
+      orderBy: { fecha: "desc" },
+      include: {
+        usuario_disponibilidad_excepcion_creado_porTousuario: {
+          select: { nombre: true, apellido: true },
+        },
+      },
+    });
+
+    res.json({
+      data: JSON.parse(JSON.stringify(excepciones, (_, v) => (typeof v === "bigint" ? Number(v) : v))),
+    });
+  } catch (err) {
+    console.error("❌ Error al listar excepciones:", err);
+    res.status(500).json({ error: "Error al listar excepciones" });
+  }
+});
+
+
+
+// ============================================================
+// 🧩 ENDPOINT: Eliminar excepción
+// ============================================================
+app.delete("/admin/excepciones/:id", verifyAdmin, async (req, res) => {
+  try {
+    const id = BigInt(req.params.id);
+    await prisma.disponibilidad_excepcion.delete({ where: { id } });
+    res.json({ ok: true, message: "Excepción eliminada correctamente." });
+  } catch (err) {
+    console.error("❌ Error al eliminar excepción:", err);
+    res.status(500).json({ error: "Error al eliminar excepción" });
+  }
+});
+
+// Eliminar excepciones por grupo (motivo + rango de fechas)
+app.post("/admin/excepciones/eliminar-grupo", verifyAdmin, async (req, res) => {
+  try {
+    const { motivo, desde, hasta } = req.body;
+    await prisma.disponibilidad_excepcion.deleteMany({
+      where: {
+        motivo,
+        fecha: {
+          gte: startOfDayCL(desde),
+          lte: startOfDayCL(dayjs.tz(`${hasta}T00:00:00`, "America/Santiago").add(1, "day").toDate()),
+        },
+      },
+    });
+    res.json({ ok: true, message: "Grupo de excepciones eliminado correctamente." });
+  } catch (err) {
+    console.error("❌ Error al eliminar grupo:", err);
+    res.status(500).json({ error: "Error al eliminar grupo de excepciones" });
   }
 });
 
