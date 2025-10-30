@@ -8,6 +8,7 @@ interface Rol {
   id: number;
   codigo: string;
   nombre: string;
+  disponibilidad_servicio: boolean;
   _count?: { usuario: number };
 }
 
@@ -20,7 +21,7 @@ export default function AdminRolesPage() {
   const [editRol, setEditRol] = useState<Rol | null>(null);
   const [editForm, setEditForm] = useState({ codigo: "", nombre: "" });
 
-  // Cargar roles
+  // ✅ Cargar roles
   const fetchRoles = async () => {
     try {
       const res = await fetch("http://localhost:3001/admin/roles", {
@@ -140,6 +141,39 @@ export default function AdminRolesPage() {
     }
   };
 
+  // ✅ Cambiar disponibilidad (solo para roles válidos)
+  const cambiarDisponibilidad = async (id: number, nuevoValor: boolean) => {
+    try {
+      const res = await fetch(`http://localhost:3001/admin/roles/${id}/disponibilidad`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ disponibilidad_servicio: nuevoValor }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        Swal.fire({
+          icon: "success",
+          title: `Disponibilidad ${nuevoValor ? "activada" : "desactivada"} correctamente`,
+          timer: 1500,
+          showConfirmButton: false,
+        });
+
+        setRoles((prev) =>
+          prev.map((r) =>
+            r.id === id ? { ...r, disponibilidad_servicio: nuevoValor } : r
+          )
+        );
+      } else {
+        Swal.fire("Error", data.error || "No se pudo actualizar la disponibilidad", "error");
+      }
+    } catch {
+      Swal.fire("Error", "Error al actualizar disponibilidad.", "error");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFBEA] px-8 py-10">
       <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-md p-8 border border-[#E5E5E5]">
@@ -195,19 +229,51 @@ export default function AdminRolesPage() {
                   <th className="py-3 px-5 text-center flex items-center justify-center gap-1">
                     <Users className="w-4 h-4" /> Usuarios
                   </th>
+                  <th className="py-3 px-5 text-center">Disponibilidad</th>
                   <th className="py-3 px-5 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {roles.length > 0 ? (
                   roles.map((r) => (
-                    <tr key={r.id} className="hover:bg-[#FAFAF8] border-b border-[#DCE5D7]">
+                    <tr
+                      key={r.id}
+                      className="hover:bg-[#FAFAF8] border-b border-[#DCE5D7]"
+                    >
                       <td className="py-3 px-5 text-gray-700">{r.id}</td>
                       <td className="py-3 px-5 font-semibold">{r.codigo}</td>
                       <td className="py-3 px-5">{r.nombre}</td>
                       <td className="py-3 px-5 text-center text-gray-700 font-medium">
                         {r._count?.usuario ?? 0}
                       </td>
+
+                      {/* ✅ Columna de disponibilidad */}
+                      <td className="py-3 px-5 text-center">
+                        <input
+                          type="checkbox"
+                          className="toggle toggle-success"
+                          checked={
+                            r.codigo === "cliente"
+                              ? false
+                              : r.disponibilidad_servicio
+                          }
+                          disabled={
+                            r.codigo === "admin" || r.codigo === "cliente"
+                          }
+                          onChange={(e) =>
+                            cambiarDisponibilidad(r.id, e.target.checked)
+                          }
+                          title={
+                            r.codigo === "admin"
+                              ? "El rol administrador no tiene disponibilidad de servicio"
+                              : r.codigo === "cliente"
+                              ? "El rol cliente no tiene disponibilidad de servicio"
+                              : "Cambiar disponibilidad"
+                          }
+                        />
+                      </td>
+
+                      {/* ✅ Acciones */}
                       <td className="py-3 px-5 text-center flex justify-center gap-2">
                         <button
                           onClick={() => abrirModal(r)}
@@ -236,7 +302,10 @@ export default function AdminRolesPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="text-center text-gray-500 py-6 italic">
+                    <td
+                      colSpan={6}
+                      className="text-center text-gray-500 py-6 italic"
+                    >
                       No hay roles registrados.
                     </td>
                   </tr>
@@ -259,14 +328,18 @@ export default function AdminRolesPage() {
                 className="input input-bordered border-[#DADADA]"
                 value={editForm.codigo}
                 disabled={editRol?.codigo === "admin"}
-                onChange={(e) => setEditForm({ ...editForm, codigo: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, codigo: e.target.value })
+                }
               />
               <input
                 type="text"
                 placeholder="Nombre del rol"
                 className="input input-bordered border-[#DADADA]"
                 value={editForm.nombre}
-                onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, nombre: e.target.value })
+                }
               />
             </div>
             <div className="flex justify-end gap-3 mt-6">

@@ -86,14 +86,26 @@ model disponibilidad {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model disponibilidad_excepcion {
-  id         BigInt   @id @default(autoincrement())
-  tecnico_id BigInt
-  fecha      DateTime @db.Date
-  disponible Boolean  @default(false)
-  nota       String?
-  usuario    usuario  @relation(fields: [tecnico_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                                   BigInt                   @id @default(autoincrement())
+  tecnico_id                                           BigInt?
+  fecha                                                DateTime?                @db.Date
+  disponible                                           Boolean                  @default(false)
+  nota                                                 String?
+  tipo                                                 String?                  @db.VarChar(40)
+  motivo                                               String?                  @db.VarChar(200)
+  descripcion                                          String?
+  creado_por                                           BigInt?
+  creado_en                                            DateTime?                @default(now()) @db.Timestamptz(6)
+  desde                                                DateTime?                @db.Timestamp(6)
+  hasta                                                DateTime?                @db.Timestamp(6)
+  actualizado_por                                      BigInt?
+  usuario                                              usuario?                 @relation(fields: [tecnico_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuario_disponibilidad_excepcion_creado_porTousuario usuario?                 @relation("disponibilidad_excepcion_creado_porTousuario", fields: [creado_por], references: [id], onUpdate: NoAction, map: "fk_excepcion_admin")
+  disponibilidad_mensual                               disponibilidad_mensual[]
 
   @@index([tecnico_id, fecha])
+  @@index([tecnico_id, fecha], map: "idx_disponibilidad_excepcion_tecnico_fecha")
+  @@index([tipo], map: "idx_disponibilidad_excepcion_tipo")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -331,10 +343,11 @@ model portafolio_item {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model rol {
-  id      BigInt    @id @default(autoincrement())
-  codigo  String    @unique @db.VarChar(20)
-  nombre  String    @db.VarChar(50)
-  usuario usuario[]
+  id                      BigInt    @id @default(autoincrement())
+  codigo                  String    @unique @db.VarChar(20)
+  nombre                  String    @db.VarChar(50)
+  disponibilidad_servicio Boolean?  @default(false)
+  usuario                 usuario[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -355,38 +368,40 @@ model servicio {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model usuario {
-  id                                          BigInt                      @id @default(autoincrement())
-  nombre                                      String                      @db.VarChar(100)
-  email                                       String                      @unique @db.VarChar(150)
-  telefono                                    String?                     @db.VarChar(20)
-  contrasena_hash                             String
-  activo                                      Boolean                     @default(false)
-  fecha_creacion                              DateTime                    @default(now()) @db.Timestamptz(6)
-  fecha_actualizacion                         DateTime                    @default(now()) @db.Timestamptz(6)
-  apellido                                    String?
-  rol_id                                      BigInt
-  cita_cita_cancelada_por_usuario_idTousuario cita[]                      @relation("cita_cancelada_por_usuario_idTousuario")
-  cita_cita_cliente_idTousuario               cita[]                      @relation("cita_cliente_idTousuario")
-  cita_cita_tecnico_idTousuario               cita[]                      @relation("cita_tecnico_idTousuario")
-  confirm_token                               confirm_token[]
-  direccion                                   direccion[]
-  disponibilidad                              disponibilidad[]
-  disponibilidad_excepcion                    disponibilidad_excepcion[]
-  dispositivo                                 dispositivo[]
-  evento_cita                                 evento_cita[]
-  imagen                                      imagen[]
-  jardin                                      jardin[]
-  mensaje                                     mensaje[]
-  mensaje_leido                               mensaje_leido[]
-  notificacion                                notificacion[]
-  pago_pago_usuario_idTousuario               pago[]                      @relation("pago_usuario_idTousuario")
-  pago_pago_validado_por_usuario_idTousuario  pago[]                      @relation("pago_validado_por_usuario_idTousuario")
-  pago_evento                                 pago_evento[]
-  participante_conversacion                   participante_conversacion[]
-  perfil_cliente                              perfil_cliente?
-  reset_token                                 reset_token[]
-  rol                                         rol                         @relation(fields: [rol_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_usuario_rol")
-  visita                                      visita[]
+  id                                                                    BigInt                      @id @default(autoincrement())
+  nombre                                                                String                      @db.VarChar(100)
+  email                                                                 String                      @unique @db.VarChar(150)
+  telefono                                                              String?                     @db.VarChar(20)
+  contrasena_hash                                                       String
+  activo                                                                Boolean                     @default(false)
+  fecha_creacion                                                        DateTime                    @default(now()) @db.Timestamptz(6)
+  fecha_actualizacion                                                   DateTime                    @default(now()) @db.Timestamptz(6)
+  apellido                                                              String?
+  rol_id                                                                BigInt
+  cita_cita_cancelada_por_usuario_idTousuario                           cita[]                      @relation("cita_cancelada_por_usuario_idTousuario")
+  cita_cita_cliente_idTousuario                                         cita[]                      @relation("cita_cliente_idTousuario")
+  cita_cita_tecnico_idTousuario                                         cita[]                      @relation("cita_tecnico_idTousuario")
+  confirm_token                                                         confirm_token[]
+  direccion                                                             direccion[]
+  disponibilidad                                                        disponibilidad[]
+  disponibilidad_excepcion                                              disponibilidad_excepcion[]
+  disponibilidad_excepcion_disponibilidad_excepcion_creado_porTousuario disponibilidad_excepcion[]  @relation("disponibilidad_excepcion_creado_porTousuario")
+  disponibilidad_mensual                                                disponibilidad_mensual[]
+  dispositivo                                                           dispositivo[]
+  evento_cita                                                           evento_cita[]
+  imagen                                                                imagen[]
+  jardin                                                                jardin[]
+  mensaje                                                               mensaje[]
+  mensaje_leido                                                         mensaje_leido[]
+  notificacion                                                          notificacion[]
+  pago_pago_usuario_idTousuario                                         pago[]                      @relation("pago_usuario_idTousuario")
+  pago_pago_validado_por_usuario_idTousuario                            pago[]                      @relation("pago_validado_por_usuario_idTousuario")
+  pago_evento                                                           pago_evento[]
+  participante_conversacion                                             participante_conversacion[]
+  perfil_cliente                                                        perfil_cliente?
+  reset_token                                                           reset_token[]
+  rol                                                                   rol                         @relation(fields: [rol_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_usuario_rol")
+  visita                                                                visita[]
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -469,6 +484,24 @@ model visita_producto {
   fecha_registro DateTime @default(now()) @db.Timestamptz(6)
   producto       producto @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   visita         visita   @relation(fields: [visita_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model disponibilidad_mensual {
+  id                       BigInt                    @id @default(autoincrement())
+  tecnico_id               BigInt
+  fecha                    DateTime                  @db.Date
+  hora_inicio              DateTime                  @db.Timestamptz(6)
+  hora_fin                 DateTime                  @db.Timestamptz(6)
+  cupos_totales            Int                       @default(1)
+  cupos_ocupados           Int                       @default(0)
+  fecha_creacion           DateTime                  @default(now()) @db.Timestamptz(6)
+  activo                   Boolean?                  @default(true)
+  excepcion_id             BigInt?
+  disponibilidad_excepcion disponibilidad_excepcion? @relation(fields: [excepcion_id], references: [id], map: "fk_disponibilidad_mensual_excepcion")
+  usuario                  usuario                   @relation(fields: [tecnico_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_disponibilidad_mensual_usuario")
+
+  @@unique([tecnico_id, fecha, hora_inicio], map: "disponibilidad_mensual_unica")
+  @@index([fecha], map: "idx_disponibilidad_mensual_fecha")
 }
 
 enum estado_cita {
