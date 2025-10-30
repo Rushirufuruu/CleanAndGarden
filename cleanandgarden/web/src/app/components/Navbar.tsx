@@ -196,7 +196,7 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <UserPlus size={18} /> Gestión de Usuarios
+                     Gestión de Usuarios
                     </Link>
                   </li>
                   <li>
@@ -205,7 +205,7 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <ShieldCheck size={18} /> Gestión de Roles
+                       Gestión de Roles
                     </Link>
                   </li>
                   <li>
@@ -214,7 +214,34 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <ShieldCheck size={18} /> Gestión de Insumos
+                       Gestión de Insumos
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/gestion-direcciones-jardines"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Gestión de Jardines 
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/gestion-horarios"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Gestión de Horarios/Disponibilidad 
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="gestion-excepciones"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Gestión de Excepciones de Horarios 
                     </Link>
                   </li>
                   <li>

@@ -168,7 +168,7 @@ export default function GestionDireccionesJardines() {
     <div className="min-h-screen bg-[#FFFFFF] text-[#2E5430] px-6 py-10">
       <div className="max-w-6xl mx-auto bg-[#E8D7B9] rounded-2xl shadow-md p-8 border border-[#CBB896]">
         <h1 className="text-3xl font-bold mb-8 text-center flex items-center justify-center gap-2 text-[#2E5430]">
-          <Home /> Gestión de Direcciones y Jardines
+          <Home /> Gestión de  Jardines
         </h1>
 
         {/* 🧾 Formulario */}
