@@ -24,7 +24,9 @@ type Trabajador = {
 type Excepcion = {
   id: number;
   tipo: string;
-  fecha: string;
+  fecha?: string | null;
+  desde?: string | null;
+  hasta?: string | null;
   motivo: string;
   descripcion?: string | null;
   usuario_disponibilidad_excepcion_creado_porTousuario?: {
@@ -76,13 +78,16 @@ export default function GestionExcepciones() {
       });
       if (await handleAuthError(res.status)) return;
       const data = await res.json();
-      setExcepciones(data.data || []);
+
+      // 🧠 Le decimos explícitamente a TypeScript qué tipo de datos recibimos
+      setExcepciones((data.data || []) as Excepcion[]);
     } catch {
       Swal.fire("Error", "No se pudieron obtener las excepciones", "error");
     } finally {
       setLoading(false);
     }
   };
+
 
   const fetchTrabajadores = async () => {
     try {
@@ -181,40 +186,138 @@ export default function GestionExcepciones() {
     }
   };
 
+  
+
+      // ===============================
+    // ✏️ Editar excepción existente
+    // ===============================
+    const handleEditar = async (g: any) => {
+      const isGlobal = ["feriado_irrenunciable", "dia_completo"].includes(g.tipo);
+
+      const { value: formValues } = await Swal.fire({
+        title: "Editar excepción",
+        html: `
+          <div class="text-left space-y-2">
+            <label class="block text-sm font-semibold">Tipo</label>
+            <select id="swal-tipo" class="swal2-input" style="width:100%">
+              <option value="">Seleccionar tipo...</option>
+              <option value="feriado_irrenunciable" ${g.tipo === "feriado_irrenunciable" ? "selected" : ""}>Feriado irrenunciable</option>
+              <option value="dia_completo" ${g.tipo === "dia_completo" ? "selected" : ""}>Día completo</option>
+              <option value="vacaciones" ${g.tipo === "vacaciones" ? "selected" : ""}>Vacaciones</option>
+              <option value="licencia" ${g.tipo === "licencia" ? "selected" : ""}>Licencia</option>
+              <option value="permiso" ${g.tipo === "permiso" ? "selected" : ""}>Permiso</option>
+            </select>
+
+            ${
+              isGlobal
+                ? `
+                <label class="block text-sm font-semibold mt-3">Fecha</label>
+                <input type="date" id="swal-fecha" class="swal2-input" value="${g.desde ?? ""}" style="width:100%" />
+              `
+                : `
+                <label class="block text-sm font-semibold mt-3">Desde</label>
+                <input type="date" id="swal-desde" class="swal2-input" value="${g.desde ?? ""}" style="width:100%" />
+                <label class="block text-sm font-semibold">Hasta</label>
+                <input type="date" id="swal-hasta" class="swal2-input" value="${g.hasta ?? ""}" style="width:100%" />
+              `
+            }
+
+            <label class="block text-sm font-semibold mt-3">Descripción</label>
+            <textarea id="swal-descripcion" class="swal2-textarea" style="width:100%;height:70px;">${g.descripcion ?? ""}</textarea>
+          </div>
+        `,
+        focusConfirm: false,
+        confirmButtonText: "Guardar cambios",
+        confirmButtonColor: "#2E5430",
+        showCancelButton: true,
+        cancelButtonText: "Cancelar",
+        preConfirm: () => {
+          const tipo = (document.getElementById("swal-tipo") as HTMLSelectElement).value;
+          const descripcion = (document.getElementById("swal-descripcion") as HTMLTextAreaElement).value.trim();
+          const fecha = (document.getElementById("swal-fecha") as HTMLInputElement)?.value || null;
+          const desde = (document.getElementById("swal-desde") as HTMLInputElement)?.value || null;
+          const hasta = (document.getElementById("swal-hasta") as HTMLInputElement)?.value || null;
+          return { tipo, descripcion, fecha, rango: { desde, hasta } };
+        },
+      });
+
+      if (!formValues) return;
+
+      if (!formValues.tipo) {
+        return Swal.fire("Atención", "Debes seleccionar un tipo de excepción.", "warning");
+      }
+
+      try {
+        setLoading(true);
+
+        const res = await fetch(`http://localhost:3001/admin/excepciones/${g.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(formValues),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Error al modificar excepción");
+
+        await Swal.fire("✅ Éxito", "Excepción modificada correctamente.", "success");
+        fetchExcepciones();
+      } catch (err: any) {
+        Swal.fire("Error", err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // ===============================
+  // 🗑️ Eliminar excepción individual
   // ===============================
-  // Eliminar grupo completo
-  // ===============================
-  const handleEliminarGrupo = async (motivo: string, desde: string, hasta: string) => {
+  const handleEliminarExcepcion = async (id: number) => {
     const confirm = await Swal.fire({
       icon: "warning",
-      title: "¿Eliminar grupo de excepciones?",
-      text: `Se eliminarán todas las excepciones del rango ${desde} → ${hasta}.`,
+      title: "¿Eliminar esta excepción?",
+      text: "Se restaurarán los horarios que estaban bloqueados por esta excepción.",
       showCancelButton: true,
       confirmButtonColor: "#2E5430",
       cancelButtonColor: "#d33",
       confirmButtonText: "Sí, eliminar",
       cancelButtonText: "Cancelar",
     });
+
     if (!confirm.isConfirmed) return;
 
     try {
       setLoading(true);
-      const res = await fetch(`http://localhost:3001/admin/excepciones/eliminar-grupo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+
+      const res = await fetch(`http://localhost:3001/admin/excepciones/${id}`, {
+        method: "DELETE",
         credentials: "include",
-        body: JSON.stringify({ motivo, desde, hasta }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al eliminar grupo");
+
+      if (!res.ok) throw new Error(data.error || "Error al eliminar excepción");
+
       await Swal.fire("✅ Éxito", data.message, "success");
-      fetchExcepciones();
+      fetchExcepciones(); // refresca la tabla
     } catch (err: any) {
       Swal.fire("Error", err.message, "error");
     } finally {
       setLoading(false);
     }
+  };
+
+
+  // 🧱 Tipo para agrupar excepciones en la tabla
+  type GrupoExcepcion = {
+    id: number;
+    tipo: string;
+    tecnico?: string;
+    desde: string;
+    hasta: string;
+    motivo: string;
+    descripcion?: string | null;
+    creado_por: string;
   };
 
   // ===============================
@@ -350,19 +453,14 @@ export default function GestionExcepciones() {
             </thead>
             <tbody>
               {(() => {
-                const sorted = [...excepciones].sort(
-                  (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime()
-                );
+                const sorted = [...excepciones].sort((a, b) => {
+                  const fechaA = a.fecha ? new Date(a.fecha).getTime() : 0;
+                  const fechaB = b.fecha ? new Date(b.fecha).getTime() : 0;
+                  return fechaA - fechaB;
+                });
 
-                const grupos: {
-                  tipo: string;
-                  tecnico?: string;
-                  desde: string;
-                  hasta: string;
-                  motivo: string;
-                  descripcion?: string | null;
-                  creado_por: string;
-                }[] = [];
+                const grupos: GrupoExcepcion[] = [];
+
 
                 const findGroup = (tipo: string, tecnico: string | undefined) =>
                   grupos.find((g) => g.tipo === tipo && g.tecnico === tecnico);
@@ -370,16 +468,27 @@ export default function GestionExcepciones() {
                 for (const ex of sorted) {
                   const tipo = ex.tipo;
                   const tecnico = ex.motivo?.split(":")[1]?.trim() || undefined;
-                  const fecha = dayjs.tz(ex.fecha, "America/Santiago").format("YYYY-MM-DD");
+
+                  // 🧭 Tomamos las fechas de forma segura desde el backend
+                  const fecha = ex.fecha
+                    ? dayjs.tz(ex.fecha, "America/Santiago").format("YYYY-MM-DD")
+                    : null;
+                  const desde = (ex as any).desde
+                    ? dayjs.tz((ex as any).desde, "America/Santiago").format("YYYY-MM-DD")
+                    : fecha;
+                  const hasta = (ex as any).hasta
+                    ? dayjs.tz((ex as any).hasta, "America/Santiago").format("YYYY-MM-DD")
+                    : fecha;
 
                   if (["vacaciones", "licencia", "permiso"].includes(tipo)) {
                     const grupo = findGroup(tipo, tecnico);
                     if (!grupo) {
                       grupos.push({
+                        id: ex.id,
                         tipo,
                         tecnico,
-                        desde: fecha,
-                        hasta: fecha,
+                        desde: desde || fecha || "—",
+                        hasta: hasta || fecha || "—",
                         motivo: ex.motivo,
                         descripcion: ex.descripcion,
                         creado_por:
@@ -388,15 +497,16 @@ export default function GestionExcepciones() {
                             : "—",
                       });
                     } else {
-                      if (fecha < grupo.desde) grupo.desde = fecha;
-                      if (fecha > grupo.hasta) grupo.hasta = fecha;
+                      if (desde && desde < grupo.desde) grupo.desde = desde;
+                      if (hasta && hasta > grupo.hasta) grupo.hasta = hasta;
                     }
                   } else {
                     grupos.push({
+                      id: ex.id,
                       tipo,
                       tecnico: undefined,
-                      desde: fecha,
-                      hasta: fecha,
+                      desde: fecha || desde || "—",
+                      hasta: fecha || hasta || "—",
                       motivo: ex.motivo,
                       descripcion: ex.descripcion,
                       creado_por:
@@ -411,18 +521,59 @@ export default function GestionExcepciones() {
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="border p-2">{g.motivo}</td>
                     <td className="border p-2 text-center">
-                      {g.desde === g.hasta ? g.desde : `${g.desde} → ${g.hasta}`}
+                      {(() => {
+                        // Función segura para formatear fechas (evita el error "Invalid time value")
+                        const formatCL = (iso?: string) => {
+                          if (!iso) return null; // si viene vacío o null
+                          const parsed = dayjs(iso);
+                          if (!parsed.isValid()) return null; // si es inválido
+                          return parsed.tz("America/Santiago").format("DD/MM/YYYY");
+                        };
+
+                        // Detectamos si es una excepción global (feriado o día completo)
+                        const isGlobal =
+                          ["feriado_irrenunciable", "dia_completo"].includes(g.tipo);
+
+                        // Formateamos fechas de inicio y fin
+                        const fechaDesde = formatCL(g.desde);
+                        const fechaHasta = formatCL(g.hasta);
+
+                        // Si es global (solo una fecha)
+                        if (isGlobal) {
+                          return fechaDesde || "—";
+                        }
+
+                        // Si tiene rango de más de un día
+                        if (fechaDesde && fechaHasta && fechaDesde !== fechaHasta) {
+                          return `${fechaDesde} → ${fechaHasta}`;
+                        }
+
+                        // Si tiene solo una fecha (desde == hasta)
+                        if (fechaDesde) {
+                          return fechaDesde;
+                        }
+
+                        // Si no hay fechas válidas
+                        return "—";
+                      })()}
                     </td>
+
                     <td className="border p-2">{g.descripcion ?? "—"}</td>
                     <td className="border p-2">{g.creado_por}</td>
-                    <td className="border p-2">
+                    <td className="border p-2 flex justify-center gap-3">
                       <button
-                        onClick={() => handleEliminarGrupo(g.motivo, g.desde, g.hasta)}
+                        onClick={() => handleEditar(g)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleEliminarExcepcion(g.id)}
                         className="text-red-600 hover:underline"
                       >
                         Eliminar
                       </button>
-                    </td>
+                      </td>
                   </tr>
                 ));
               })()}

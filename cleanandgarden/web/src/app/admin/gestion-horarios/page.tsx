@@ -42,6 +42,7 @@ export default function GestionHorarios() {
 
   const [preview, setPreview] = useState<Slot[]>([]);
   const [guardados, setGuardados] = useState<Slot[]>([]);
+  const [excepciones, setExcepciones] = useState<any[]>([]);
   const [mesActual, setMesActual] = useState<Date>(new Date());
   const [filtroTrabajador, setFiltroTrabajador] = useState<number | null>(null);
 
@@ -112,17 +113,23 @@ export default function GestionHorarios() {
     return dow === 0 || dow === 6; // dom/sáb
   };
 
+ 
   // ===== Cargar usuarios con disponibilidad =====
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad/usuarios`, {
       credentials: "include",
     })
       .then((r) => r.json())
-      .then(setUsuarios)
+      .then((data) => {
+        // Asegura que siempre sea un array
+        const lista = Array.isArray(data) ? data : data?.data ?? [];
+        setUsuarios(lista);
+      })
       .catch(() =>
         Swal.fire("Error", "No se pudieron cargar los trabajadores", "error")
       );
   }, []);
+
 
   // ===== Cargar horarios guardados del mes =====
   useEffect(() => {
@@ -133,12 +140,19 @@ export default function GestionHorarios() {
     const mes = `${fechaBase.getFullYear()}-${String(fechaBase.getMonth() + 1).padStart(2, "0")}`;
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad-mensual?mes=${mes}`,
-        { credentials: "include" }
-      );
-      const json = await res.json();
-      const data = Array.isArray(json) ? json : json.data;
-      setGuardados(Array.isArray(data) ? (data as Slot[]) : []);
+      `${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad-mensual?mes=${mes}`,
+      { credentials: "include" }
+    );
+    const json = await res.json();
+
+    // 👇 AQUÍ CAMBIA
+    // el backend ahora devuelve { data, excepciones }
+    const horarios = json?.data ?? [];
+    const excepcionesData = json?.excepciones ?? [];
+
+    setGuardados(horarios);
+    setExcepciones(excepcionesData);
+
     } catch {
       Swal.fire("Error", "No se pudieron cargar los horarios guardados", "error");
     }
@@ -666,6 +680,22 @@ export default function GestionHorarios() {
                 const isWE = isWeekend(dayKey);
                 let savedSlots = groupedSaved[dayKey] || [];
                 let previewSlots = groupedPreview[dayKey] || [];
+                // ✅ Traer TODAS las excepciones que afecten este día
+                let excepcionesDelDia = (excepciones || []).filter((e) => {
+                  const dia = dayKey;
+                  const desde = e.desde ? String(e.desde).split("T")[0] : e.fecha?.split("T")[0];
+                  const hasta = e.hasta ? String(e.hasta).split("T")[0] : e.fecha?.split("T")[0];
+                  if (!desde || !hasta) return false;
+                  return dia >= desde && dia <= hasta;
+                });
+
+                // ✅ Si hay filtro por trabajador, mostrar solo las del técnico seleccionado o globales
+                if (filtroTrabajador) {
+                  excepcionesDelDia = excepcionesDelDia.filter(
+                    (e) => !e.tecnico_id || Number(e.tecnico_id) === Number(filtroTrabajador)
+                  );
+                }
+
                 if (filtroTrabajador) {
                   savedSlots = savedSlots.filter((s) => Number(s.tecnico_id) === Number(filtroTrabajador));
                   previewSlots = previewSlots.filter((s) => Number(s.tecnico_id) === Number(filtroTrabajador));
@@ -758,6 +788,32 @@ export default function GestionHorarios() {
                     ) : previewSlots.length === 0 ? (
                       <p className="text-xs italic opacity-60">Sin horarios</p>
                     ) : null}
+
+                    {excepcionesDelDia.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {excepcionesDelDia.map((e: any, idx: number) => (
+                          <div
+                            key={`ex-${dayKey}-${idx}-${e.id ?? e.tipo}`}
+                            className="text-xs px-2 py-1 rounded mt-1"
+                            style={{
+                              backgroundColor: "#FFE4E1",
+                              color: "#8B0000",
+                              border: "1px solid #E3B5B5",
+                            }}
+                          >
+                            🛑 {e.motivo || e.tipo}
+                            {e.tecnico_id && (
+                              <span className="opacity-70">
+                                {" "}
+                                • {e.usuario.rol.codigo.toUpperCase()} 
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+
                   </div>
                 );
               })}
