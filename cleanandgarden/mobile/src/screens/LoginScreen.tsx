@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,41 +10,81 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../lib/supabase";
 
 export default function LoginScreen({ navigation }: any) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // ✅ Detectar sesión activa
+  useEffect(() => {
+    const checkSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        console.log("Usuario ya autenticado:", session.user.email);
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Tabs" }], // 🔁 Redirigir a Tabs
+        });
+      }
+    };
+
+    checkSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session && event === "SIGNED_IN") {
+          console.log("Inicio de sesión detectado:", session.user.email);
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "Tabs" }], // 🔁 Redirigir a Tabs
+          });
+        } else if (event === "SIGNED_OUT") {
+          console.log("Sesión cerrada");
+        }
+      }
+    );
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  // ✅ Iniciar sesión manualmente
   const handleLogin = async () => {
     if (!email.trim()) {
-      Alert.alert('Error', 'Ingresa un correo electrónico válido');
+      Alert.alert("Error", "Ingresa un correo electrónico válido");
       return;
     }
     if (!password) {
-      Alert.alert('Error', 'Ingresa la contraseña');
+      Alert.alert("Error", "Ingresa la contraseña");
       return;
     }
 
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
 
-      Alert.alert('✅ Éxito', 'Inicio de sesión exitoso');
-      // Redirige a otra pantalla, ej:
-      navigation.navigate('Home');
+      Alert.alert("✅ Éxito", "Inicio de sesión exitoso");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Tabs" }], // 👈 Redirigir a Tabs también
+      });
     } catch (error: any) {
-      Alert.alert('❌ Error', error.message || 'No se pudo iniciar sesión');
+      Alert.alert("❌ Error", error.message || "No se pudo iniciar sesión");
     } finally {
       setLoading(false);
     }
@@ -53,7 +93,7 @@ export default function LoginScreen({ navigation }: any) {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
@@ -96,7 +136,7 @@ export default function LoginScreen({ navigation }: any) {
                   style={styles.eyeButton}
                 >
                   <Ionicons
-                    name={showPassword ? 'eye-off' : 'eye'}
+                    name={showPassword ? "eye-off" : "eye"}
                     size={22}
                     color="#374151"
                   />
@@ -107,7 +147,7 @@ export default function LoginScreen({ navigation }: any) {
 
           {/* Forgot Password */}
           <TouchableOpacity
-            onPress={() => Alert.alert('Función próximamente')}
+            onPress={() => Alert.alert("Función próximamente")}
             style={styles.forgotPassword}
           >
             <Text style={styles.forgotPasswordText}>
@@ -131,7 +171,9 @@ export default function LoginScreen({ navigation }: any) {
           {/* Register Link */}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>¿No tienes una cuenta? </Text>
-            <TouchableOpacity onPress={() => Alert.alert('Registro próximamente')}>
+            <TouchableOpacity
+              onPress={() => Alert.alert("Registro próximamente")}
+            >
               <Text style={styles.registerLink}>Regístrate</Text>
             </TouchableOpacity>
           </View>
@@ -144,18 +186,18 @@ export default function LoginScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fefaf2',
+    backgroundColor: "#fefaf2",
   },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 20,
   },
   formContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -163,16 +205,16 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 32,
-    fontWeight: 'bold',
-    color: '#2E5430',
-    textAlign: 'center',
+    fontWeight: "bold",
+    color: "#2E5430",
+    textAlign: "center",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#374151',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "#374151",
+    textAlign: "center",
     marginBottom: 24,
   },
   inputContainer: {
@@ -180,25 +222,25 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
+    fontWeight: "500",
+    color: "#374151",
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 8,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   passwordInput: {
     flex: 1,
@@ -209,40 +251,40 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   forgotPassword: {
-    alignSelf: 'flex-end',
+    alignSelf: "flex-end",
     marginBottom: 20,
   },
   forgotPasswordText: {
-    color: '#2E5430',
+    color: "#2E5430",
     fontSize: 14,
   },
   button: {
-    backgroundColor: '#2E5430',
+    backgroundColor: "#2E5430",
     borderRadius: 8,
     padding: 16,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 16,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   registerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
   registerText: {
-    color: '#6B7280',
+    color: "#6B7280",
     fontSize: 14,
   },
   registerLink: {
-    color: '#2E5430',
+    color: "#2E5430",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

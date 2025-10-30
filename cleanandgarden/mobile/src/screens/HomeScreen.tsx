@@ -10,8 +10,10 @@ import {
   Image,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { StatusBar } from "expo-status-bar";
 
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
@@ -67,111 +69,91 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
-        {/* HEADER */}
-        <View style={styles.header}>
-          <Text style={styles.title}>🌿 Bienvenido a Clean & Garden</Text>
-          <Text style={styles.subtitle}>
-            Cuida tus espacios verdes con nuestros servicios profesionales.
-          </Text>
-        </View>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <StatusBar style="dark" backgroundColor="#fefaf2" />
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+          {/* HEADER */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
+            <Text style={styles.subtitle}>
+              Cuida tus espacios verdes con nuestros servicios profesionales.
+            </Text>
+          </View>
 
-        {/* BOTÓN DE PERFIL */}
-        <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
-          >
-            <Ionicons name="person-circle-outline" size={30} color="#2E5430" />
-          </TouchableOpacity>
-        </View>
-
-        {/* SERVICIOS */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Nuestros servicios</Text>
-            <TouchableOpacity onPress={() => Alert.alert("Próximamente")}>
-              <Text style={styles.verMas}>Ver todos</Text>
+          {/* BOTÓN DE PERFIL */}
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
+            >
+              <Ionicons name="person-circle-outline" size={30} color="#2E5430" />
             </TouchableOpacity>
           </View>
 
-          {loading ? (
-            <ActivityIndicator color="#2E5430" size="large" />
-          ) : (
-            <FlatList
-              data={servicios}
-              keyExtractor={(item) => item.id.toString()}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <View style={styles.card}>
-                  {item.imagen?.url_publica ? (
-                    <Image
-                      source={{ uri: item.imagen.url_publica }}
-                      style={styles.cardImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.imagePlaceholder}>
-                      <Ionicons name="leaf-outline" size={40} color="#2E5430" />
-                    </View>
-                  )}
-                  <Text style={styles.cardTitle}>{item.nombre}</Text>
-                  <Text style={styles.cardDesc} numberOfLines={2}>
-                    {item.descripcion}
-                  </Text>
-                  <Text style={styles.cardPrice}>
-                    💰 {item.precio_clp?.toLocaleString("es-CL")} CLP
-                  </Text>
-                </View>
-              )}
-            />
-          )}
-        </View>
+          {/* SERVICIOS */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Nuestros servicios</Text>
+              <TouchableOpacity onPress={() => Alert.alert("Próximamente")}>
+                <Text style={styles.verMas}>Ver todos</Text>
+              </TouchableOpacity>
+            </View>
 
-        {/* CTA */}
-        <View style={styles.ctaContainer}>
-          <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={() => Alert.alert("Agendar", "Funcionalidad próximamente")}
-          >
-            <Text style={styles.ctaText}>🗓️ Agenda tu servicio ahora</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+            {loading ? (
+              <ActivityIndicator color="#2E5430" size="large" />
+            ) : (
+              <FlatList
+                data={servicios}
+                keyExtractor={(item) => item.id.toString()}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <View style={styles.card}>
+                    {item.imagen?.url_publica ? (
+                      <Image
+                        source={{ uri: item.imagen.url_publica }}
+                        style={styles.cardImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.imagePlaceholder}>
+                        <Ionicons name="leaf-outline" size={40} color="#2E5430" />
+                      </View>
+                    )}
+                    <Text style={styles.cardTitle}>{item.nombre}</Text>
+                    <Text style={styles.cardDesc} numberOfLines={2}>
+                      {item.descripcion}
+                    </Text>
+                    <Text style={styles.cardPrice}>
+                      💰 {item.precio_clp?.toLocaleString("es-CL")} CLP
+                    </Text>
+                  </View>
+                )}
+              />
+            )}
+          </View>
 
-      {/* ✅ Barra inferior */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.tabButton}
-          onPress={() => Alert.alert("Inicio", "Ya estás en Inicio")}
-        >
-          <Ionicons name="home" size={24} color="#2E5430" />
-          <Text style={styles.tabLabel}>Inicio</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.tabButton}
-          onPress={() => Alert.alert("Servicios", "Próximamente")}
-        >
-          <Ionicons name="leaf" size={24} color="#2E5430" />
-          <Text style={styles.tabLabel}>Servicios</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.tabButton}
-          onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
-        >
-          <Ionicons name="person" size={24} color="#2E5430" />
-          <Text style={styles.tabLabel}>Perfil</Text>
-        </TouchableOpacity>
+          {/* CTA */}
+          <View style={styles.ctaContainer}>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => Alert.alert("Agendar", "Funcionalidad próximamente")}
+            >
+              <Text style={styles.ctaText}>🗓️ Agenda tu servicio ahora</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#fefaf2", // mismo color del fondo
+  },
   container: {
     flex: 1,
     backgroundColor: "#fefaf2",
