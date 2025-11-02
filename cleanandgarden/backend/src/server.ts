@@ -1468,6 +1468,34 @@ app.get("/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// Crear dirección para el usuario autenticado
+app.post("/direcciones", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { calle, comuna_id } = req.body;
+
+    if (!calle || !calle.trim()) {
+      return res.status(400).json({ error: 'La calle es obligatoria' });
+    }
+    if (!comuna_id) {
+      return res.status(400).json({ error: 'La comuna es obligatoria' });
+    }
+
+    const direccion = await prisma.direccion.create({
+      data: {
+        calle: calle.trim(),
+        comuna_id: BigInt(comuna_id),
+        usuario_id: BigInt(userData.id)
+      }
+    });
+
+    res.status(201).json({ message: "Dirección creada correctamente", direccion: toJSONSafe(direccion) });
+  } catch (err: any) {
+    console.error("Error al crear dirección:", err);
+    res.status(500).json({ error: "Error interno al crear dirección" });
+  }
+});
+
 // Listar direcciones del usuario autenticado
 app.get("/direcciones", authMiddleware, async (req, res) => {
   try {
@@ -1578,6 +1606,66 @@ app.post("/jardines", authMiddleware, async (req, res) => {
   } catch (err: any) {
     console.error("Error al crear jardín (cliente):", err);
     res.status(500).json({ error: "Error interno al crear jardín" });
+  }
+});
+
+// Actualizar jardín del usuario autenticado
+app.put("/jardines/:id", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id, imagen_url } = req.body;
+
+    // Verificar que el jardín pertenece al usuario
+    const jardin = await prisma.jardin.findFirst({
+      where: { id: BigInt(id), cliente_id: BigInt(userData.id) }
+    });
+    if (!jardin) {
+      return res.status(404).json({ error: 'Jardín no encontrado' });
+    }
+
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim()) errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim()) errors.descripcion = "La descripción es obligatoria";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
+
+    if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
+
+    // Crear imagen si se proporciona URL nueva
+    let imagen_principal_id = jardin.imagen_principal_id;
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          usuario_propietario_id: BigInt(userData.id),
+          tipo: 'jardin',
+          clave_storage: `gardens/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg'
+        }
+      });
+      imagen_principal_id = nuevaImagen.id;
+    }
+
+    const updatedJardin = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        direccion_id: BigInt(direccion_id),
+        imagen_principal_id: imagen_principal_id,
+        fecha_actualizacion: new Date()
+      }
+    });
+
+    res.json({ message: "Jardín actualizado correctamente", jardin: toJSONSafe(updatedJardin) });
+  } catch (err: any) {
+    console.error("Error al actualizar jardín:", err);
+    res.status(500).json({ error: "Error interno al actualizar jardín" });
   }
 });
 
