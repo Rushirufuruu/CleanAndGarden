@@ -1468,6 +1468,32 @@ app.get("/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// Listar direcciones del usuario autenticado
+app.get("/direcciones", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const direcciones = await prisma.direccion.findMany({
+      where: { usuario_id: BigInt(userData.id) },
+      select: { 
+        id: true, 
+        calle: true,
+        comuna: {
+          select: {
+            nombre: true,
+            region: { select: { nombre: true } }
+          }
+        }
+      },
+      orderBy: { calle: 'asc' }
+    });
+
+    res.json({ direcciones: toJSONSafe(direcciones) });
+  } catch (err) {
+    console.error('Error al obtener direcciones del usuario:', err);
+    res.status(500).json({ error: 'Error al obtener direcciones' });
+  }
+});
+
 // Listar jardines del usuario autenticado
 app.get("/jardines", authMiddleware, async (req, res) => {
   try {
@@ -1477,7 +1503,21 @@ app.get("/jardines", authMiddleware, async (req, res) => {
       select: { 
         id: true, 
         nombre: true, 
+        area_m2: true,
+        tipo_suelo: true,
+        descripcion: true,
         direccion_id: true,
+        direccion: {
+          select: {
+            calle: true,
+            comuna: {
+              select: {
+                nombre: true,
+                region: { select: { nombre: true } }
+              }
+            }
+          }
+        },
         imagen: { select: { url_publica: true } }
       },
       orderBy: { nombre: 'asc' }
@@ -1502,6 +1542,7 @@ app.post("/jardines", authMiddleware, async (req, res) => {
       errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
     if (!tipo_suelo || !tipo_suelo.trim()) errors.tipo_suelo = "El tipo de suelo es obligatorio";
     if (!descripcion || !descripcion.trim()) errors.descripcion = "La descripción es obligatoria";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
 
     if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
 
@@ -1526,9 +1567,9 @@ app.post("/jardines", authMiddleware, async (req, res) => {
       area_m2: parseFloat(area_m2),
       tipo_suelo: tipo_suelo.trim(),
       descripcion: descripcion.trim(),
+      direccion_id: BigInt(direccion_id),
       activo: true,
     };
-    if (direccion_id) dataAny.direccion_id = BigInt(direccion_id);
     if (imagen_principal_id) dataAny.imagen_principal_id = imagen_principal_id;
 
     const jardin = await prisma.jardin.create({ data: dataAny });

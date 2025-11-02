@@ -46,6 +46,10 @@ export default function BookAppointmentPage() {
 		const [phone, setPhone] = useState("")
 		const [clienteId, setClienteId] = useState<number | null>(null)
 
+		// direcciones del usuario
+		const [direcciones, setDirecciones] = useState<Array<any>>([])
+		const [selectedDireccionId, setSelectedDireccionId] = useState<number | null>(null)
+
 		// jardines del usuario
 		const [gardens, setGardens] = useState<Array<any>>([])
 		const [selectedGardenId, setSelectedGardenId] = useState<number | null>(null)
@@ -93,6 +97,18 @@ export default function BookAppointmentPage() {
 						} catch (err) {
 							console.debug('load gardens failed', err)
 						}
+
+						// cargar direcciones del usuario
+						try {
+							const dRes = await fetch(`${API}/direcciones`, { credentials: 'include' })
+							if (dRes.ok) {
+								const dBody = await dRes.json()
+								const items = dBody?.direcciones ?? dBody?.data ?? dBody ?? []
+								setDirecciones(Array.isArray(items) ? items : [])
+							}
+						} catch (err) {
+							console.debug('load direcciones failed', err)
+						}
 					}
 				} catch (err) {
 					// no bloquear la carga de la página si falla
@@ -109,6 +125,10 @@ export default function BookAppointmentPage() {
 			setError('El nombre del jardín no puede estar vacío')
 			return
 		}
+		if (!selectedDireccionId) {
+			setError('Debes seleccionar una dirección')
+			return
+		}
 		setSavingGarden(true)
 		try {
 			let imagen_url = null
@@ -119,7 +139,7 @@ export default function BookAppointmentPage() {
 					return
 				}
 			}
-			const payload: any = { nombre: newGardenName }
+			const payload: any = { nombre: newGardenName, direccion_id: selectedDireccionId }
 			if (newGardenArea && newGardenArea.trim() !== '') {
 				// enviar como string o number según backend; prisma espera Decimal
 				payload.area_m2 = Number(newGardenArea)
@@ -132,10 +152,25 @@ export default function BookAppointmentPage() {
 			const body = await res.json()
 			const created = body?.jardin ?? body?.data ?? body
 			if (created) {
-				setGardens((p) => [created, ...p])
-				setSelectedGardenId(created.id ?? null)
+				// recargar jardines para obtener datos completos con imagen y dirección
+				try {
+					const gRes = await fetch(`${API}/jardines`, { credentials: 'include' })
+					if (gRes.ok) {
+						const gBody = await gRes.json()
+						const items = gBody?.jardines ?? gBody?.data ?? gBody ?? []
+						setGardens(Array.isArray(items) ? items : [])
+						setSelectedGardenId(created.id ?? null)
+					}
+				} catch (err) {
+					console.debug('reload gardens failed', err)
+				}
 				setNewGardenName('')
 				setCreatingGarden(false)
+				setSelectedDireccionId(null)
+				setNewGardenArea('')
+				setNewGardenSoilType('')
+				setNewGardenDescription('')
+				setNewGardenImage(null)
 			}
 		} catch (err: any) {
 			console.error(err)
@@ -204,15 +239,33 @@ export default function BookAppointmentPage() {
 	 				</div>
 
 					<section className="mb-6">
-						<h2 className="text-lg font-semibold mb-3">Jardín</h2>
+						<h2 className="text-lg font-semibold mb-3">Jardines</h2>
 						{gardens.length > 0 ? (
-							<div className="flex items-center gap-3">
-								<select value={selectedGardenId ?? ''} onChange={(e) => setSelectedGardenId(e.target.value ? Number(e.target.value) : null)} className="rounded border px-3 py-2">
-									{gardens.map((g) => (
-										<option key={g.id} value={g.id}>{g.nombre ?? g.name ?? `Jardín ${g.id}`}</option>
-									))}
-								</select>
-								<button type="button" onClick={() => setCreatingGarden(true)} className="rounded border px-3 py-2">Crear jardín</button>
+							<div className="space-y-4">
+								{gardens.map((garden) => (
+									<div key={garden.id} className={`border rounded p-4 ${selectedGardenId === garden.id ? 'border-green-500 bg-green-50' : 'border-gray-300'}`}>
+										<div className="flex items-start gap-4">
+											{garden.imagen?.url_publica && (
+												<img src={garden.imagen.url_publica} alt={garden.nombre} className="w-20 h-20 object-cover rounded" />
+											)}
+											<div className="flex-1">
+												<h3 className="font-semibold">{garden.nombre}</h3>
+												<p><strong>Área:</strong> {garden.area_m2} m²</p>
+												<p><strong>Tipo de suelo:</strong> {garden.tipo_suelo}</p>
+												<p><strong>Dirección:</strong> {garden.direccion ? `${garden.direccion.calle}, ${garden.direccion.comuna.nombre}, ${garden.direccion.comuna.region.nombre}` : 'Sin dirección'}</p>
+												<p><strong>Descripción:</strong> {garden.descripcion}</p>
+											</div>
+											<button 
+												type="button" 
+												onClick={() => setSelectedGardenId(garden.id)} 
+												className={`px-3 py-1 rounded text-sm ${selectedGardenId === garden.id ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+											>
+												{selectedGardenId === garden.id ? 'Seleccionado' : 'Seleccionar'}
+											</button>
+										</div>
+									</div>
+								))}
+								<button type="button" onClick={() => setCreatingGarden(true)} className="rounded bg-[#2E5430] px-3 py-2 text-white">Crear jardín</button>
 							</div>
 						) : (
 							<div>
@@ -234,9 +287,18 @@ export default function BookAppointmentPage() {
 										<input type="file" accept="image/*" onChange={(e) => setNewGardenImage(e.target.files?.[0] || null)} className="rounded border px-3 py-2" />
 									</div>
 									<textarea placeholder="Descripción" value={newGardenDescription} onChange={(e) => setNewGardenDescription(e.target.value)} className="w-full rounded border px-3 py-2" />
+									<div className="grid grid-cols-1 gap-3">
+										<label className="block text-sm font-medium">Dirección *</label>
+										<select value={selectedDireccionId ?? ''} onChange={(e) => setSelectedDireccionId(e.target.value ? Number(e.target.value) : null)} className="rounded border px-3 py-2" required>
+											<option value="">Selecciona una dirección</option>
+											{direcciones.map((dir) => (
+												<option key={dir.id} value={dir.id}>{dir.calle}, {dir.comuna.nombre}, {dir.comuna.region.nombre}</option>
+											))}
+										</select>
+									</div>
 									<div className="flex gap-2">
 										<button type="button" onClick={createGarden} disabled={savingGarden} className="rounded bg-green-600 px-3 py-2 text-white">{savingGarden ? 'Creando...' : 'Crear'}</button>
-										<button type="button" onClick={() => { setCreatingGarden(false); setNewGardenName(''); setNewGardenArea(''); setNewGardenSoilType(''); setNewGardenDescription(''); setNewGardenImage(null) }} className="rounded border px-3 py-2">Cancelar</button>
+										<button type="button" onClick={() => { setCreatingGarden(false); setNewGardenName(''); setNewGardenArea(''); setNewGardenSoilType(''); setNewGardenDescription(''); setNewGardenImage(null); setSelectedDireccionId(null) }} className="rounded border px-3 py-2">Cancelar</button>
 									</div>
 								</div>
 							)}
