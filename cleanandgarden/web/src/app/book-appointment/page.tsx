@@ -1,8 +1,39 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
+import { supabase } from "../../lib/supabase"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+
+// Función para subir imagen a Supabase Storage
+const uploadImageToSupabase = async (file: File): Promise<string | null> => {
+  try {
+    console.log('🔄 Iniciando subida de imagen:', file.name, 'Tamaño:', file.size);
+    
+    // Generar nombre único para el archivo
+    const fileName = `gardens/${Date.now()}-${file.name}`;
+    console.log('📁 Nombre del archivo:', fileName);
+    
+    // Subir archivo al bucket
+    const { data, error } = await supabase.storage
+      .from('clean-and-garden-bucket')
+      .upload(fileName, file);
+
+    if (error) {
+      throw error;
+    }
+
+    // Obtener URL pública
+    const { data: urlData } = supabase.storage
+      .from('clean-and-garden-bucket')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    return null;
+  }
+};
 
 export default function BookAppointmentPage() {
 	const [loading, setLoading] = useState(false)
@@ -21,6 +52,10 @@ export default function BookAppointmentPage() {
 		const [creatingGarden, setCreatingGarden] = useState(false)
 		const [newGardenName, setNewGardenName] = useState("")
 		const [savingGarden, setSavingGarden] = useState(false)
+		const [newGardenArea, setNewGardenArea] = useState<string>("")
+		const [newGardenSoilType, setNewGardenSoilType] = useState<string>("")
+		const [newGardenDescription, setNewGardenDescription] = useState<string>("")
+		const [newGardenImage, setNewGardenImage] = useState<File | null>(null)
 
 		// edit controls
 		const [isEditing, setIsEditing] = useState(false)
@@ -68,33 +103,47 @@ export default function BookAppointmentPage() {
 			loadProfile()
 		}, [])
 
-		// Crear un jardín inline
-		async function createGarden() {
-			if (!newGardenName || newGardenName.trim().length === 0) {
-				setError('El nombre del jardín no puede estar vacío')
-				return
-			}
-			setSavingGarden(true)
-			try {
-				const res = await fetch(`${API}/jardines`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: newGardenName }) })
-				if (!res.ok) throw new Error('No se pudo crear el jardín')
-				const body = await res.json()
-				const created = body?.jardin ?? body?.data ?? body
-				if (created) {
-					setGardens((p) => [created, ...p])
-					setSelectedGardenId(created.id ?? null)
-					setNewGardenName('')
-					setCreatingGarden(false)
-				}
-			} catch (err: any) {
-				console.error(err)
-				setError(err?.message ?? 'Error creando jardín')
-			} finally {
-				setSavingGarden(false)
-			}
+	// Crear un jardín inline
+	async function createGarden() {
+		if (!newGardenName || newGardenName.trim().length === 0) {
+			setError('El nombre del jardín no puede estar vacío')
+			return
 		}
-
-	// Página con solo el formulario de perfil prefijado
+		setSavingGarden(true)
+		try {
+			let imagen_url = null
+			if (newGardenImage) {
+				imagen_url = await uploadImageToSupabase(newGardenImage)
+				if (!imagen_url) {
+					setError('Error al subir la imagen')
+					return
+				}
+			}
+			const payload: any = { nombre: newGardenName }
+			if (newGardenArea && newGardenArea.trim() !== '') {
+				// enviar como string o number según backend; prisma espera Decimal
+				payload.area_m2 = Number(newGardenArea)
+			}
+			if (newGardenSoilType && newGardenSoilType.trim() !== '') payload.tipo_suelo = newGardenSoilType
+			if (newGardenDescription && newGardenDescription.trim() !== '') payload.descripcion = newGardenDescription
+			if (imagen_url) payload.imagen_url = imagen_url
+			const res = await fetch(`${API}/jardines`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+			if (!res.ok) throw new Error('No se pudo crear el jardín')
+			const body = await res.json()
+			const created = body?.jardin ?? body?.data ?? body
+			if (created) {
+				setGardens((p) => [created, ...p])
+				setSelectedGardenId(created.id ?? null)
+				setNewGardenName('')
+				setCreatingGarden(false)
+			}
+		} catch (err: any) {
+			console.error(err)
+			setError(err?.message ?? 'Error creando jardín')
+		} finally {
+			setSavingGarden(false)
+		}
+	}	// Página con solo el formulario de perfil prefijado
 	return (
 	 		<div className="min-h-screen bg-[#fefaf2] py-8 px-4">
 	 			<div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
@@ -174,15 +223,23 @@ export default function BookAppointmentPage() {
 							</div>
 						)}
 
-						{creatingGarden && (
-							<div className="mt-3 grid grid-cols-2 gap-3 items-center">
-								<input placeholder="Nombre del jardín" value={newGardenName} onChange={(e) => setNewGardenName(e.target.value)} className="rounded border px-3 py-2" />
-								<div className="flex gap-2">
-									<button type="button" onClick={createGarden} disabled={savingGarden} className="rounded bg-green-600 px-3 py-2 text-white">{savingGarden ? 'Creando...' : 'Crear'}</button>
-									<button type="button" onClick={() => { setCreatingGarden(false); setNewGardenName('') }} className="rounded border px-3 py-2">Cancelar</button>
+							{creatingGarden && (
+								<div className="mt-3 space-y-3">
+									<div className="grid grid-cols-2 gap-3">
+										<input placeholder="Nombre del jardín" value={newGardenName} onChange={(e) => setNewGardenName(e.target.value)} className="rounded border px-3 py-2" />
+										<input placeholder="Área (m²)" type="number" step="0.01" value={newGardenArea} onChange={(e) => setNewGardenArea(e.target.value)} className="rounded border px-3 py-2" />
+									</div>
+									<div className="grid grid-cols-2 gap-3">
+										<input placeholder="Tipo de suelo" value={newGardenSoilType} onChange={(e) => setNewGardenSoilType(e.target.value)} className="rounded border px-3 py-2" />
+										<input type="file" accept="image/*" onChange={(e) => setNewGardenImage(e.target.files?.[0] || null)} className="rounded border px-3 py-2" />
+									</div>
+									<textarea placeholder="Descripción" value={newGardenDescription} onChange={(e) => setNewGardenDescription(e.target.value)} className="w-full rounded border px-3 py-2" />
+									<div className="flex gap-2">
+										<button type="button" onClick={createGarden} disabled={savingGarden} className="rounded bg-green-600 px-3 py-2 text-white">{savingGarden ? 'Creando...' : 'Crear'}</button>
+										<button type="button" onClick={() => { setCreatingGarden(false); setNewGardenName(''); setNewGardenArea(''); setNewGardenSoilType(''); setNewGardenDescription(''); setNewGardenImage(null) }} className="rounded border px-3 py-2">Cancelar</button>
+									</div>
 								</div>
-							</div>
-						)}
+							)}
 					</section>
 
 				</div>

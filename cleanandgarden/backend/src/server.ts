@@ -1474,7 +1474,12 @@ app.get("/jardines", authMiddleware, async (req, res) => {
     const userData = (req as any).user;
     const jardines = await prisma.jardin.findMany({
       where: { cliente_id: BigInt(userData.id) },
-      select: { id: true, nombre: true, direccion_id: true },
+      select: { 
+        id: true, 
+        nombre: true, 
+        direccion_id: true,
+        imagen: { select: { url_publica: true } }
+      },
       orderBy: { nombre: 'asc' }
     });
 
@@ -1489,7 +1494,7 @@ app.get("/jardines", authMiddleware, async (req, res) => {
 app.post("/jardines", authMiddleware, async (req, res) => {
   try {
     const userData = (req as any).user;
-    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id } = req.body;
+    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id, imagen_url } = req.body;
 
     const errors: Record<string, string> = {};
     if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
@@ -1500,6 +1505,21 @@ app.post("/jardines", authMiddleware, async (req, res) => {
 
     if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
 
+    // Crear imagen si se proporciona URL
+    let imagen_principal_id = null;
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          usuario_propietario_id: BigInt(userData.id),
+          tipo: 'jardin',
+          clave_storage: `gardens/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg' // Asumimos JPEG por defecto
+        }
+      });
+      imagen_principal_id = nuevaImagen.id;
+    }
+
     const dataAny: any = {
       cliente_id: BigInt(userData.id),
       nombre: nombre.trim(),
@@ -1509,6 +1529,7 @@ app.post("/jardines", authMiddleware, async (req, res) => {
       activo: true,
     };
     if (direccion_id) dataAny.direccion_id = BigInt(direccion_id);
+    if (imagen_principal_id) dataAny.imagen_principal_id = imagen_principal_id;
 
     const jardin = await prisma.jardin.create({ data: dataAny });
 
