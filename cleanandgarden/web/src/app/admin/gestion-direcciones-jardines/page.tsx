@@ -50,7 +50,7 @@ export default function GestionDireccionesJardines() {
   const fetchDirecciones = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/admin/direcciones", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/direcciones`, {
         credentials: "include",
       });
       const data = await res.json();
@@ -106,8 +106,8 @@ export default function GestionDireccionesJardines() {
     }
 
     const url = editId
-      ? `http://localhost:3001/admin/jardines/${editId}`
-      : "http://localhost:3001/admin/jardines";
+      ? `${process.env.NEXT_PUBLIC_API_URL}/admin/jardines/${editId}`
+      : `${process.env.NEXT_PUBLIC_API_URL}/admin/jardines`;
     const method = editId ? "PUT" : "POST";
 
     const res = await fetch(url, {
@@ -149,7 +149,7 @@ export default function GestionDireccionesJardines() {
 
   // Cambiar estado
   const toggleActivo = async (id: number) => {
-    const res = await fetch(`http://localhost:3001/admin/jardines/${id}/estado`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/jardines/${id}/estado`, {
       method: "PUT",
       credentials: "include",
     });
@@ -177,7 +177,7 @@ export default function GestionDireccionesJardines() {
 
     if (!confirm.isConfirmed) return;
 
-    const res = await fetch(`http://localhost:3001/admin/jardines/${id}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/jardines/${id}`, {
       method: "DELETE",
       credentials: "include",
     });

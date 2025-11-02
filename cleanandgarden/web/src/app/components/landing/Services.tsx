@@ -23,9 +23,9 @@ export default function Services() {
     try {
       setIsLoading(true);
       setError(null);
-      
-      const response = await fetch('http://localhost:3001/admin/servicios');
-      
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/servicios`);
+
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }

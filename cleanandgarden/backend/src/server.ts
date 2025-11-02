@@ -587,6 +587,8 @@ app.patch('/admin/portfolio/:id/toggle-publish', async (req, res) => {
   }
 });
 
+//falta el eliminar  portafolio
+
 // Obtener servicios activos
 app.get('/servicios', async (req, res) => {
   try {

@@ -73,7 +73,7 @@ export default function GestionExcepciones() {
   const fetchExcepciones = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:3001/admin/excepciones", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/excepciones`, {
         credentials: "include",
       });
       if (await handleAuthError(res.status)) return;
@@ -91,7 +91,7 @@ export default function GestionExcepciones() {
 
   const fetchTrabajadores = async () => {
     try {
-      const res = await fetch("http://localhost:3001/admin/trabajadores-con-horarios", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/trabajadores-con-horarios`, {
         credentials: "include",
       });
       if (await handleAuthError(res.status)) return;
@@ -156,7 +156,7 @@ export default function GestionExcepciones() {
 
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:3001/admin/excepciones", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/excepciones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -250,7 +250,7 @@ export default function GestionExcepciones() {
       try {
         setLoading(true);
 
-        const res = await fetch(`http://localhost:3001/admin/excepciones/${g.id}`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/excepciones/${g.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -289,7 +289,7 @@ export default function GestionExcepciones() {
     try {
       setLoading(true);
 
-      const res = await fetch(`http://localhost:3001/admin/excepciones/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/excepciones/${id}`, {
         method: "DELETE",
         credentials: "include",
       });

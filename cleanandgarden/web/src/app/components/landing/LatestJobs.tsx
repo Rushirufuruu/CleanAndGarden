@@ -20,9 +20,9 @@ export default function LatestJobs() {
     try {
       setIsLoading(true);
       setError(null);
-      
-      const response = await fetch('http://localhost:3001/portfolio');
-      
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/portfolio`);
+
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }

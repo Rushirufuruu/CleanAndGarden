@@ -32,7 +32,7 @@ export default function GestionInsumos() {
   const fetchInsumos = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/admin/insumos", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/insumos`, {
         credentials: "include",
       });
       const data = await res.json();
@@ -73,8 +73,8 @@ export default function GestionInsumos() {
     }
 
     const url = editId
-      ? `http://localhost:3001/admin/insumos/${editId}`
-      : "http://localhost:3001/admin/insumos";
+      ? `${process.env.NEXT_PUBLIC_API_URL}/admin/insumos/${editId}`
+      : `${process.env.NEXT_PUBLIC_API_URL}/admin/insumos`;
     const method = editId ? "PUT" : "POST";
 
     const res = await fetch(url, {
@@ -129,7 +129,7 @@ export default function GestionInsumos() {
 
     if (!confirm.isConfirmed) return;
 
-    const res = await fetch(`http://localhost:3001/admin/insumos/${id}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/insumos/${id}`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -146,7 +146,7 @@ export default function GestionInsumos() {
     <div className="min-h-screen bg-[#FAF8F0] text-[#2E5430] px-6 py-10">
       <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-md p-8">
         <h1 className="text-3xl font-bold mb-8 text-center">
-          🌿 Gestión de Insumos
+          Gestión de Insumos
         </h1>
 
         {/* 🔍 Buscador y filtro */}

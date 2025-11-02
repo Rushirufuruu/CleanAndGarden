@@ -59,7 +59,7 @@ export default function MensajesPage() {
   useEffect(() => {
     const verificarSesion = async () => {
       try {
-        const res = await fetch('http://localhost:3001/profile', {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
           credentials: 'include',
         })
         if (!res.ok) {
@@ -140,7 +140,7 @@ export default function MensajesPage() {
       if (!usuarioActual) return;
       setLoadingUsuarios(true);
       try {
-        const res = await fetch(`http://localhost:3001/usuarios/buscar?excludeId=${usuarioActual.id}`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/usuarios/buscar?excludeId=${usuarioActual.id}`, {
           credentials: 'include',
         });
         if (!res.ok) throw new Error('Error al cargar usuarios');
@@ -156,7 +156,7 @@ export default function MensajesPage() {
   // Traer conversaciones
   const fetchConversaciones = async () => {
     try {
-      const res = await fetch('http://localhost:3001/conversaciones', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversaciones`, {
         credentials: 'include',
       })
 
@@ -211,7 +211,7 @@ export default function MensajesPage() {
   // Crea la conversación con el usuario seleccionado
   const handleCrearConversacion = async (otroUsuarioId: number) => {
     try {
-      const res = await fetch('http://localhost:3001/conversaciones', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversaciones`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

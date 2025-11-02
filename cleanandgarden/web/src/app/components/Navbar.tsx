@@ -22,7 +22,7 @@ export default function Navbar() {
 
     const checkSession = async () => {
       try {
-        const res = await fetch("http://localhost:3001/profile", {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
           method: "GET",
           credentials: "include",
         });
@@ -116,7 +116,7 @@ export default function Navbar() {
     if (!result.isConfirmed) return;
 
     try {
-      const res = await fetch("http://localhost:3001/logout", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/logout`, {
         method: "POST",
         credentials: "include",
       });
