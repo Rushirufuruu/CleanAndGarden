@@ -1468,6 +1468,57 @@ app.get("/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// Listar jardines del usuario autenticado
+app.get("/jardines", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const jardines = await prisma.jardin.findMany({
+      where: { cliente_id: BigInt(userData.id) },
+      select: { id: true, nombre: true, direccion_id: true },
+      orderBy: { nombre: 'asc' }
+    });
+
+    res.json({ jardines: toJSONSafe(jardines) });
+  } catch (err) {
+    console.error('Error al obtener jardines del usuario:', err);
+    res.status(500).json({ error: 'Error al obtener jardines' });
+  }
+});
+
+// Crear jardín para el usuario autenticado (desde UI cliente)
+app.post("/jardines", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id } = req.body;
+
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim()) errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim()) errors.descripcion = "La descripción es obligatoria";
+
+    if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
+
+    const dataAny: any = {
+      cliente_id: BigInt(userData.id),
+      nombre: nombre.trim(),
+      area_m2: parseFloat(area_m2),
+      tipo_suelo: tipo_suelo.trim(),
+      descripcion: descripcion.trim(),
+      activo: true,
+    };
+    if (direccion_id) dataAny.direccion_id = BigInt(direccion_id);
+
+    const jardin = await prisma.jardin.create({ data: dataAny });
+
+    res.status(201).json({ message: "Jardín creado correctamente", jardin: toJSONSafe(jardin) });
+  } catch (err: any) {
+    console.error("Error al crear jardín (cliente):", err);
+    res.status(500).json({ error: "Error interno al crear jardín" });
+  }
+});
+
 //--------------------------------------------------------------------
 // =======================================
 // ACTUALIZAR PERFIL (valida teléfono si jardinero)
@@ -2755,6 +2806,51 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
 });
 
 
+// PUBLIC: listar disponibilidad mensual (solo slots activos) -> usado por frontend para reservar
+app.get("/disponibilidad-mensual", async (req, res) => {
+  try {
+    const { mes, usuarioId, desde, hasta } = req.query;
+    let rangoDesde: string;
+    let rangoHasta: string;
+
+    if (mes) {
+      const [y, m] = String(mes).split("-").map(Number);
+      const firstLocal = new Date(y, m - 1, 1);
+      const lastLocal = new Date(y, m, 0);
+      rangoDesde = toPgDateLocal(firstLocal);
+      rangoHasta = toPgDateLocal(lastLocal);
+    } else if (desde && hasta) {
+      rangoDesde = toPgDateLocal(desde as string);
+      rangoHasta = toPgDateLocal(hasta as string);
+    } else {
+      const now = new Date();
+      const firstLocal = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      rangoDesde = toPgDateLocal(firstLocal);
+      rangoHasta = toPgDateLocal(lastLocal);
+    }
+
+    const filtro: any = {
+      fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+      activo: true,
+    };
+    if (usuarioId) filtro.tecnico_id = BigInt(String(usuarioId));
+
+    const disponibilidad = await prisma.disponibilidad_mensual.findMany({
+      where: filtro,
+      orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
+      include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
+    });
+
+    // No incluimos excepciones aquí (frontend sólo necesita slots activos para reservar)
+    res.json({ data: toJSONSafe(disponibilidad) });
+  } catch (err) {
+    console.error("❌ Error al listar disponibilidad pública:", err);
+    res.status(500).json({ error: "Error al listar disponibilidad" });
+  }
+});
+
+
 
 
 //  eliminar mes actual 
@@ -2775,6 +2871,68 @@ app.delete("/admin/disponibilidad-mensual/eliminar-mes", verifyAdmin, async (req
   } catch (err) {
     console.error("Error al eliminar mes:", err);
     return res.status(500).json({ error: "Error interno al eliminar el mes" });
+  }
+});
+
+
+// ============================================================
+// 🛡️ Reservar una cita: operación atómica que verifica y consume un slot
+// Request body: { disponibilidad_mensual_id, cliente_id, jardin_id, servicio_id, duracion_minutos?, notas_cliente?, precio_aplicado? }
+// Response: 201 + cita creado o 409/400 si no disponible
+app.post("/cita/reservar", async (req, res) => {
+  try {
+    const {
+      disponibilidad_mensual_id,
+      cliente_id,
+      jardin_id,
+      servicio_id,
+      duracion_minutos,
+      notas_cliente,
+      precio_aplicado,
+    } = req.body;
+
+    if (!disponibilidad_mensual_id || !cliente_id || !jardin_id || !servicio_id) {
+      return res.status(400).json({ error: "Faltan parámetros requeridos" });
+    }
+
+    // Ejecutamos la reserva en una transacción para evitar condiciones de carrera
+    const result = await prisma.$transaction(async (tx) => {
+      // Buscar slot y validar
+      const slot = await tx.disponibilidad_mensual.findUnique({ where: { id: BigInt(disponibilidad_mensual_id) } });
+      if (!slot || !slot.activo) {
+        throw { status: 400, message: "Slot no existe o no está activo" };
+      }
+      if ((slot.cupos_ocupados ?? 0) >= (slot.cupos_totales ?? 1)) {
+        throw { status: 409, message: "Slot ya está lleno" };
+      }
+
+      // Incrementar cupos_ocupados
+      await tx.disponibilidad_mensual.update({ where: { id: slot.id }, data: { cupos_ocupados: { increment: 1 } } });
+
+      // Crear la cita usando la hora del slot (hora_inicio)
+      const cita = await tx.cita.create({
+        data: {
+          cliente_id: BigInt(cliente_id),
+          jardin_id: BigInt(jardin_id),
+          servicio_id: BigInt(servicio_id),
+          tecnico_id: BigInt(slot.tecnico_id),
+          fecha_hora: slot.hora_inicio,
+          duracion_minutos: duracion_minutos ? Number(duracion_minutos) : 60,
+          estado: "pendiente",
+          notas_cliente: notas_cliente ?? null,
+          precio_aplicado: precio_aplicado !== undefined && precio_aplicado !== null ? Number(precio_aplicado) : undefined,
+          nombre_servicio_snapshot: undefined,
+        },
+      });
+
+      return cita;
+    });
+
+    return res.status(201).json({ ok: true, cita: toJSONSafe(result) });
+  } catch (err: any) {
+    console.error("❌ Error al reservar cita:", err);
+    if (err && err.status) return res.status(err.status).json({ error: err.message });
+    return res.status(500).json({ error: "Error interno al reservar cita" });
   }
 });
 

@@ -1,223 +1,192 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import React, { useEffect, useState } from "react"
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 export default function BookAppointmentPage() {
-	const router = useRouter()
-	const [firstName, setFirstName] = useState("")
-	const [lastName, setLastName] = useState("")
-	const [email, setEmail] = useState("")
-	const [phone, setPhone] = useState("")
-	const [services, setServices] = useState<string[]>(["Poda"])
-	const [selectedService, setSelectedService] = useState<string>(services[0])
-	const [locations, setLocations] = useState<string[]>(["Casa"])
-	const [selectedLocation, setSelectedLocation] = useState<string>(locations[0])
-	const [date, setDate] = useState("")
-	const [time, setTime] = useState("")
-	const [notes, setNotes] = useState("")
-	const [error, setError] = useState("")
-	const [success, setSuccess] = useState("")
+	const [loading, setLoading] = useState(false)
+	const [error, setError] = useState<string | null>(null)
 
-	function formatDateTime(d: string, t: string) {
-		if (!d || !t) return ""
-		try {
-			const dt = new Date(`${d}T${t}`)
-			const datePart = dt.toLocaleDateString("es-ES", {
-				day: "2-digit",
-				month: "2-digit",
-				year: "numeric",
-			})
-			const timePart = dt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
-			return `${datePart} - ${timePart}`
-		} catch {
-			return ""
+		// perfil del usuario (prefill)
+		const [firstName, setFirstName] = useState("")
+		const [lastName, setLastName] = useState("")
+		const [email, setEmail] = useState("")
+		const [phone, setPhone] = useState("")
+		const [clienteId, setClienteId] = useState<number | null>(null)
+
+		// jardines del usuario
+		const [gardens, setGardens] = useState<Array<any>>([])
+		const [selectedGardenId, setSelectedGardenId] = useState<number | null>(null)
+		const [creatingGarden, setCreatingGarden] = useState(false)
+		const [newGardenName, setNewGardenName] = useState("")
+		const [savingGarden, setSavingGarden] = useState(false)
+
+		// edit controls
+		const [isEditing, setIsEditing] = useState(false)
+		const [savingProfile, setSavingProfile] = useState(false)
+		const [originalProfile, setOriginalProfile] = useState<{ nombre?: string; apellido?: string; email?: string; telefono?: string } | null>(null)
+
+		useEffect(() => {
+			// intentar prefijar perfil si el usuario está autenticado
+			async function loadProfile() {
+				try {
+					const res = await fetch(`${API}/profile`, { credentials: 'include' })
+					if (!res.ok) return // no hay sesión
+					const body = await res.json()
+					const user = body?.user
+					if (user) {
+						setFirstName(user.nombre ?? "")
+						setLastName(user.apellido ?? "")
+						setEmail(user.email ?? "")
+						setPhone(user.telefono ?? "")
+						setClienteId(user.id ?? null)
+						setOriginalProfile({ nombre: user.nombre ?? "", apellido: user.apellido ?? "", email: user.email ?? "", telefono: user.telefono ?? "" })
+
+						// después de cargar perfil, cargar jardines del usuario
+						try {
+							const gRes = await fetch(`${API}/jardines`, { credentials: 'include' })
+							if (gRes.ok) {
+								const gBody = await gRes.json()
+								const items = gBody?.jardines ?? gBody?.data ?? gBody ?? []
+								setGardens(Array.isArray(items) ? items : [])
+								if (Array.isArray(items) && items.length > 0) {
+									// preseleccionar el primero si existe
+									setSelectedGardenId(items[0].id ?? null)
+								}
+							}
+						} catch (err) {
+							console.debug('load gardens failed', err)
+						}
+					}
+				} catch (err) {
+					// no bloquear la carga de la página si falla
+					console.debug('profile prefill failed', err)
+				}
+			}
+
+			loadProfile()
+		}, [])
+
+		// Crear un jardín inline
+		async function createGarden() {
+			if (!newGardenName || newGardenName.trim().length === 0) {
+				setError('El nombre del jardín no puede estar vacío')
+				return
+			}
+			setSavingGarden(true)
+			try {
+				const res = await fetch(`${API}/jardines`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: newGardenName }) })
+				if (!res.ok) throw new Error('No se pudo crear el jardín')
+				const body = await res.json()
+				const created = body?.jardin ?? body?.data ?? body
+				if (created) {
+					setGardens((p) => [created, ...p])
+					setSelectedGardenId(created.id ?? null)
+					setNewGardenName('')
+					setCreatingGarden(false)
+				}
+			} catch (err: any) {
+				console.error(err)
+				setError(err?.message ?? 'Error creando jardín')
+			} finally {
+				setSavingGarden(false)
+			}
 		}
-	}
 
-	const handleAddService = () => {
-		const s = prompt("Nombre del servicio a agregar (ej. Acarreo)")
-		if (s && s.trim()) {
-			setServices((prev) => {
-				const next = [...prev, s.trim()]
-				setSelectedService(s.trim())
-				return next
-			})
-		}
-	}
-
-	const handleAddLocation = () => {
-		const l = prompt("Agregar nueva dirección (ej. Oficina)")
-		if (l && l.trim()) {
-			setLocations((prev) => {
-				const next = [...prev, l.trim()]
-				setSelectedLocation(l.trim())
-				return next
-			})
-		}
-	}
-
-	const handleSubmit = (e: React.FormEvent) => {
-		e.preventDefault()
-		setError("")
-		setSuccess("")
-
-		if (!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim() || !selectedService || !selectedLocation || !date || !time) {
-			setError("Por favor completa todos los campos obligatorios (*).")
-			return
-		}
-
-		if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-			setError("Correo electrónico inválido")
-			return
-		}
-
-		const formatted = formatDateTime(date, time)
-		setSuccess(`Cita agendada para ${formatted}. Te contactaremos por ${email}.`)
-
-		// Reset form values
-		setFirstName("")
-		setLastName("")
-		setEmail("")
-		setPhone("")
-		setDate("")
-		setTime("")
-		setNotes("")
-
-		// En un flujo real aquí haríamos POST al backend y posiblemente router.push
-		// router.push('/')
-	}
-
+	// Página con solo el formulario de perfil prefijado
 	return (
-		<div className="min-h-screen bg-[#fefaf2] py-8 px-4">
-			<div className="mx-auto max-w-md rounded-2xl bg-white p-6 shadow-lg">
-				<h1 className="mb-4 text-3xl font-extrabold text-[#2E5430]">Agendar una hora</h1>
+	 		<div className="min-h-screen bg-[#fefaf2] py-8 px-4">
+	 			<div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
+	 				<h1 className="mb-4 text-2xl font-bold text-[#2E5430]">Tus datos</h1>
 
-				{error && <div className="mb-3 rounded bg-red-50 p-3 text-red-700">{error}</div>}
-				{success && <div className="mb-3 rounded bg-green-50 p-3 text-green-700">{success}</div>}
+	 				{loading && <div>Cargando...</div>}
+	 				{error && <div className="text-red-600">{error}</div>}
 
-				<form onSubmit={handleSubmit} className="space-y-6">
-					<section>
-						<h2 className="mb-3 text-lg font-semibold text-gray-700">Identificación</h2>
+	 				<div className="mb-6 rounded border p-4">
+	 					<h2 className="text-lg font-semibold mb-3">Información de perfil</h2>
+	 					<div className="grid grid-cols-2 gap-3">
+	 						<input placeholder="Nombre" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={!isEditing} className="rounded border px-3 py-2 bg-white disabled:opacity-60" />
+	 						<input placeholder="Apellido" value={lastName} onChange={(e) => setLastName(e.target.value)} disabled={!isEditing} className="rounded border px-3 py-2 bg-white disabled:opacity-60" />
+	 						<input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!isEditing} className="rounded border px-3 py-2 bg-white disabled:opacity-60" />
+	 						<input placeholder="Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!isEditing} className="rounded border px-3 py-2 bg-white disabled:opacity-60" />
+	 					</div>
 
-						<div className="grid grid-cols-2 gap-3">
-							<div>
-								<label className="mb-1 block text-sm font-medium text-gray-600">Nombre*</label>
-								<input
-									value={firstName}
-									onChange={(e) => setFirstName(e.target.value)}
-									className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-									placeholder="Álvaro"
-								/>
-							</div>
+	 					<div className="mt-3">
+	 						{!isEditing ? (
+	 							<button type="button" onClick={() => setIsEditing(true)} className="rounded bg-[#2E5430] px-3 py-2 text-white">Editar</button>
+	 						) : (
+	 							<div className="flex gap-2">
+	 								<button type="button" onClick={async () => {
+	 									setSavingProfile(true)
+	 									try {
+	 										const res = await fetch(`${API}/profile`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: firstName, apellido: lastName, email, telefono: phone }) })
+	 										if (!res.ok) throw new Error('No se pudo guardar perfil')
+	 										const body = await res.json()
+	 										const user = body?.user
+	 										if (user) {
+	 											setFirstName(user.nombre ?? firstName)
+	 											setLastName(user.apellido ?? lastName)
+	 											setEmail(user.email ?? email)
+	 											setPhone(user.telefono ?? phone)
+	 											setOriginalProfile({ nombre: user.nombre ?? firstName, apellido: user.apellido ?? lastName, email: user.email ?? email, telefono: user.telefono ?? phone })
+	 										}
+	 										setIsEditing(false)
+	 									} catch (err: any) {
+	 										console.error(err)
+	 										setError(err?.message ?? 'Error guardando perfil')
+	 									} finally {
+	 										setSavingProfile(false)
+	 									}
+	 								}} className="rounded bg-green-600 px-3 py-2 text-white" disabled={savingProfile}>{savingProfile ? 'Guardando...' : 'Guardar'}</button>
+	 								<button type="button" onClick={() => {
+	 									// restaurar valores originales
+	 									if (originalProfile) {
+	 										setFirstName(originalProfile.nombre ?? "")
+	 										setLastName(originalProfile.apellido ?? "")
+	 										setEmail(originalProfile.email ?? "")
+	 										setPhone(originalProfile.telefono ?? "")
+	 									}
+	 									setIsEditing(false)
+	 								}} className="rounded border px-3 py-2">Cancelar</button>
+	 							</div>
+	 						)}
+	 					</div>
+	 				</div>
 
-							<div>
-								<label className="mb-1 block text-sm font-medium text-gray-600">Apellido*</label>
-								<input
-									value={lastName}
-									onChange={(e) => setLastName(e.target.value)}
-									className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-									placeholder="Morales"
-								/>
-							</div>
-						</div>
-
-						<div className="mt-3">
-							<label className="mb-1 block text-sm font-medium text-gray-600">Correo electrónico*</label>
-							<input
-								value={email}
-								onChange={(e) => setEmail(e.target.value)}
-								className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-								placeholder="tu@correo.com"
-							/>
-						</div>
-
-						<div className="mt-3">
-							<label className="mb-1 block text-sm font-medium text-gray-600">Teléfono*</label>
-							<input
-								value={phone}
-								onChange={(e) => setPhone(e.target.value)}
-								className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-								placeholder="954993343"
-							/>
-						</div>
-
-						<div className="mt-3">
-							<label className="mb-1 block text-sm font-medium text-gray-600">Tipo de servicio*</label>
-							<div className="flex items-center gap-2">
-								<select
-									value={selectedService}
-									onChange={(e) => setSelectedService(e.target.value)}
-									className="flex-1 rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-								>
-									{services.map((s) => (
-										<option key={s} value={s}>{s}</option>
+					<section className="mb-6">
+						<h2 className="text-lg font-semibold mb-3">Jardín</h2>
+						{gardens.length > 0 ? (
+							<div className="flex items-center gap-3">
+								<select value={selectedGardenId ?? ''} onChange={(e) => setSelectedGardenId(e.target.value ? Number(e.target.value) : null)} className="rounded border px-3 py-2">
+									{gardens.map((g) => (
+										<option key={g.id} value={g.id}>{g.nombre ?? g.name ?? `Jardín ${g.id}`}</option>
 									))}
 								</select>
-								<button type="button" onClick={handleAddService} className="inline-flex h-9 w-9 items-center justify-center rounded bg-[#E7F3EA] text-[#2E5430] hover:bg-[#dff0df]">+</button>
+								<button type="button" onClick={() => setCreatingGarden(true)} className="rounded border px-3 py-2">Crear jardín</button>
 							</div>
-						</div>
-					</section>
-
-					<section>
-						<h3 className="mb-2 text-sm font-semibold text-gray-700">Ubicación de atención</h3>
-						<label className="mb-1 block text-sm font-medium text-gray-600">Dirección guardada*</label>
-						<div className="flex items-center gap-2">
-							<select
-								value={selectedLocation}
-								onChange={(e) => setSelectedLocation(e.target.value)}
-								className="flex-1 rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-							>
-								{locations.map((l) => (
-									<option key={l} value={l}>{l}</option>
-								))}
-							</select>
-						</div>
-						<button type="button" onClick={handleAddLocation} className="mt-2 text-sm text-[#2E5430]">+ Agregar nueva dirección</button>
-					</section>
-
-					<section>
-						<h3 className="mb-2 text-sm font-semibold text-gray-700">Fecha y hora de atención</h3>
-
-						<div className="grid grid-cols-2 gap-3">
+						) : (
 							<div>
-								<label className="mb-1 block text-sm font-medium text-gray-600">Fecha*</label>
-								<input
-									type="date"
-									value={date}
-									onChange={(e) => setDate(e.target.value)}
-									className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-								/>
+								<div className="text-sm text-gray-600 mb-2">No tienes jardines asignados.</div>
+								{!creatingGarden ? (
+									<button type="button" onClick={() => setCreatingGarden(true)} className="rounded bg-[#2E5430] px-3 py-2 text-white">Crear jardín</button>
+								) : null}
 							</div>
-							<div>
-								<label className="mb-1 block text-sm font-medium text-gray-600">Hora*</label>
-								<input
-									type="time"
-									value={time}
-									onChange={(e) => setTime(e.target.value)}
-									className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30"
-								/>
-							</div>
-						</div>
+						)}
 
-						<div className="mt-3">
-							<label className="mb-1 block text-sm font-medium text-gray-600">Fecha seleccionada</label>
-							<input readOnly value={formatDateTime(date, time)} placeholder="01/09/2025 - 10:00" className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700" />
-						</div>
+						{creatingGarden && (
+							<div className="mt-3 grid grid-cols-2 gap-3 items-center">
+								<input placeholder="Nombre del jardín" value={newGardenName} onChange={(e) => setNewGardenName(e.target.value)} className="rounded border px-3 py-2" />
+								<div className="flex gap-2">
+									<button type="button" onClick={createGarden} disabled={savingGarden} className="rounded bg-green-600 px-3 py-2 text-white">{savingGarden ? 'Creando...' : 'Crear'}</button>
+									<button type="button" onClick={() => { setCreatingGarden(false); setNewGardenName('') }} className="rounded border px-3 py-2">Cancelar</button>
+								</div>
+							</div>
+						)}
 					</section>
 
-					<section>
-						<label className="mb-1 block text-sm font-medium text-gray-600">Notas adicionales</label>
-						<textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="w-full rounded-md border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2E5430]/30" />
-					</section>
-
-					<p className="text-xs text-gray-500">Puedes modificar tu cita hasta 24 horas antes. Fuera de ese plazo solo un administrador podrá reprogramar tu cita o deberás cancelarla.</p>
-
-					<div>
-						<button type="submit" className="w-full rounded-full bg-[#2E5430] px-4 py-3 text-white hover:bg-[#234624]">Agendar</button>
-					</div>
-				</form>
-			</div>
-		</div>
+				</div>
+	 		</div>
 	)
 }
+
