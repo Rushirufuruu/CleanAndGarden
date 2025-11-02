@@ -33,9 +33,10 @@ declare global {
 const app = express()
 // Habilita CORS: permite que el front pueda llamar a la api
 app.use(cors({
-  origin: "http://localhost:3000", //  dirección exacta de tu frontend
+  origin: process.env.NEXT_PUBLIC_API_URL, //  dirección exacta de tu frontend
   credentials: true,               //  habilita envío de cookies
 }));
+
 
 app.use(express.json());
 app.use(cookieParser());
@@ -3363,46 +3364,6 @@ app.put("/admin/excepciones/:id", verifyAdmin, async (req, res) => {
 
 
 
-//====================================================================================================
-// Verificar variables de entorno al inicio
-console.log("Verificando configuración...");
-console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Configurado" : "Falta");
-console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
-console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
-console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
-
-
-const port = Number(process.env.PORT ?? 3001);
-const server = createServer(app);
-server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
-
-// Inicializar WebSocket sobre el mismo servidor HTTP
-global.chatWebSocketInstance = new ChatWebSocket(server);
-
-// 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
-setInterval(async () => {
-  try {
-    const now = new Date();
-
-    const deletedConfirm = await prisma.confirm_token.deleteMany({
-      where: { expiresAt: { lt: now } },
-    });
-
-    const deletedReset = await prisma.reset_token.deleteMany({
-      where: { expiresAt: { lt: now } },
-    });
-
-    const total = deletedConfirm.count + deletedReset.count;
-    if (total > 0) {
-      console.log(
-        `Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
-      );
-    }
-  } catch (err) {
-    console.error("Error limpiando tokens expirados:", err);
-  }
-}, 5 * 60 * 1000); // cada 5 minutos
-
 // ==========================================
 // 💬 ENDPOINTS DE CHAT / MENSAJERÍA
 // ==========================================
@@ -3775,3 +3736,42 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
 
 
 
+//====================================================================================================
+// Verificar variables de entorno al inicio
+console.log("Verificando configuración...");
+console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Configurado" : "Falta");
+console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
+console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
+
+
+const port = Number(process.env.PORT ?? 3001);
+const server = createServer(app);
+server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
+
+// Inicializar WebSocket sobre el mismo servidor HTTP
+global.chatWebSocketInstance = new ChatWebSocket(server);
+
+// 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
+setInterval(async () => {
+  try {
+    const now = new Date();
+
+    const deletedConfirm = await prisma.confirm_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const deletedReset = await prisma.reset_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const total = deletedConfirm.count + deletedReset.count;
+    if (total > 0) {
+      console.log(
+        `Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
+      );
+    }
+  } catch (err) {
+    console.error("Error limpiando tokens expirados:", err);
+  }
+}, 5 * 60 * 1000); // cada 5 minutos
