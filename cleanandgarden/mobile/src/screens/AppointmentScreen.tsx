@@ -20,7 +20,7 @@ export default function AppointmentScreen() {
       try {
         setLoading(true);
 
-        // ⚙️ Obtener usuario autenticado
+        //Obtener usuario autenticado
         const { data: userData, error: userError } = await supabase.auth.getUser();
         if (userError) throw userError;
         const userEmail = userData?.user?.email;
@@ -30,7 +30,7 @@ export default function AppointmentScreen() {
           return;
         }
 
-        // 🔍 Buscar el ID del usuario en la tabla "usuario"
+        //Buscar el ID del usuario en la tabla "usuario"
         const { data: usuario, error: usuarioError } = await supabase
           .from("usuario")
           .select("id")
@@ -39,7 +39,7 @@ export default function AppointmentScreen() {
 
         if (usuarioError) throw usuarioError;
 
-        // 📅 Obtener las citas del cliente autenticado
+        //Obtener las citas del cliente autenticado
         const { data, error } = await supabase
           .from("cita")
           .select(`
@@ -89,7 +89,7 @@ export default function AppointmentScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.servicio}>{nombreServicio}</Text>
             <Text style={styles.fecha}>
-              📅 {fechaLocal} — 🕒 {horaLocal}
+              {fechaLocal} — {horaLocal}
             </Text>
           </View>
           <Text
@@ -107,11 +107,11 @@ export default function AppointmentScreen() {
 
         {precio && (
           <Text style={styles.precio}>
-            💰 {parseFloat(precio).toLocaleString("es-CL")} CLP
+            {parseFloat(precio).toLocaleString("es-CL")} CLP
           </Text>
         )}
         {item.notas_cliente && (
-          <Text style={styles.notas}>📝 {item.notas_cliente}</Text>
+          <Text style={styles.notas}>{item.notas_cliente}</Text>
         )}
       </View>
     );
@@ -122,7 +122,7 @@ export default function AppointmentScreen() {
       <View style={styles.container}>
         {/* Encabezado */}
         <View style={styles.header}>
-          <Text style={styles.title}>🗓️ Tus horas agendadas</Text>
+          <Text style={styles.title}>Tus horas agendadas</Text>
           <Text style={styles.subtitle}>
             Consulta tus servicios programados fácilmente.
           </Text>

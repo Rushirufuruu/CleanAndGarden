@@ -126,7 +126,7 @@ export default function HomeScreen({ navigation }: any) {
                       {item.descripcion}
                     </Text>
                     <Text style={styles.cardPrice}>
-                      💰 {item.precio_clp?.toLocaleString("es-CL")} CLP
+                       {item.precio_clp?.toLocaleString("es-CL")} CLP
                     </Text>
                   </View>
                 )}
@@ -140,7 +140,7 @@ export default function HomeScreen({ navigation }: any) {
               style={styles.ctaButton}
               onPress={() => Alert.alert("Agendar", "Funcionalidad próximamente")}
             >
-              <Text style={styles.ctaText}>🗓️ Agenda tu servicio ahora</Text>
+              <Text style={styles.ctaText}>Agenda tu servicio ahora</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

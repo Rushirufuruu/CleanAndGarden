@@ -20,7 +20,7 @@ export default function LoginScreen({ navigation }: any) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ✅ Detectar sesión activa
+  //Detectar sesión activa
   useEffect(() => {
     const checkSession = async () => {
       const {
@@ -31,7 +31,7 @@ export default function LoginScreen({ navigation }: any) {
         console.log("Usuario ya autenticado:", session.user.email);
         navigation.reset({
           index: 0,
-          routes: [{ name: "Tabs" }], // 🔁 Redirigir a Tabs
+          routes: [{ name: "Tabs" }], //Redirigir a Tabs
         });
       }
     };
@@ -44,7 +44,7 @@ export default function LoginScreen({ navigation }: any) {
           console.log("Inicio de sesión detectado:", session.user.email);
           navigation.reset({
             index: 0,
-            routes: [{ name: "Tabs" }], // 🔁 Redirigir a Tabs
+            routes: [{ name: "Tabs" }], //Redirigir a Tabs
           });
         } else if (event === "SIGNED_OUT") {
           console.log("Sesión cerrada");
@@ -57,7 +57,7 @@ export default function LoginScreen({ navigation }: any) {
     };
   }, []);
 
-  // ✅ Iniciar sesión manualmente
+  //Iniciar sesión manualmente
   const handleLogin = async () => {
     if (!email.trim()) {
       Alert.alert("Error", "Ingresa un correo electrónico válido");
@@ -81,7 +81,7 @@ export default function LoginScreen({ navigation }: any) {
       Alert.alert("✅ Éxito", "Inicio de sesión exitoso");
       navigation.reset({
         index: 0,
-        routes: [{ name: "Tabs" }], // 👈 Redirigir a Tabs también
+        routes: [{ name: "Tabs" }], //Redirigir a Tabs también
       });
     } catch (error: any) {
       Alert.alert("❌ Error", error.message || "No se pudo iniciar sesión");

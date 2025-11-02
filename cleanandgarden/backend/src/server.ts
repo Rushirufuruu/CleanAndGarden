@@ -3370,9 +3370,18 @@ console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
 console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
 
 
-const port = Number(process.env.PORT ?? 3001);
+// ====================================================================================
+// Configuración del puerto dinámico (Railway, Render, etc.)
+// ====================================================================================
+const PORT = Number(process.env.PORT) || 8080;
+
+// Crear servidor HTTP (necesario para usar WebSocket en el mismo servidor)
 const server = createServer(app);
-server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
+
+// Iniciar servidor
+server.listen(PORT, () => {
+  console.log(`🚀 API backend + WebSocket listening on port ${PORT}`);
+});
 
 // Inicializar WebSocket sobre el mismo servidor HTTP
 global.chatWebSocketInstance = new ChatWebSocket(server);
