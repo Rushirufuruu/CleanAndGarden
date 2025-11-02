@@ -33,7 +33,7 @@ declare global {
 const app = express()
 // Habilita CORS: permite que el front pueda llamar a la api
 app.use(cors({
-  origin: process.env.NEXT_PUBLIC_API_URL, //  dirección exacta de tu frontend
+  origin: process.env.FRONTEND_URL, //  dirección exacta de tu frontend
   credentials: true,               //  habilita envío de cookies
 }));
 
