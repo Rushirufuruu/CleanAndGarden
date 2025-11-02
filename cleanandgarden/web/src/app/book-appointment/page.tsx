@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { supabase } from "../../lib/supabase"
+import { useRouter } from "next/navigation"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
@@ -36,8 +37,10 @@ const uploadImageToSupabase = async (file: File): Promise<string | null> => {
 };
 
 export default function BookAppointmentPage() {
-	const [loading, setLoading] = useState(false)
+	const router = useRouter()
+	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [isAuthenticated, setIsAuthenticated] = useState(false)
 
 		// perfil del usuario (prefill)
 		const [firstName, setFirstName] = useState("")
@@ -100,6 +103,7 @@ export default function BookAppointmentPage() {
 						setPhone(user.telefono ?? "")
 						setClienteId(user.id ?? null)
 						setOriginalProfile({ nombre: user.nombre ?? "", apellido: user.apellido ?? "", email: user.email ?? "", telefono: user.telefono ?? "" })
+						setIsAuthenticated(true)
 
 						// después de cargar perfil, cargar jardines del usuario
 						try {
@@ -146,7 +150,14 @@ export default function BookAppointmentPage() {
 				}
 			}
 
-			loadProfile()
+			const init = async () => {
+				try {
+					await loadProfile()
+				} finally {
+					setLoading(false)
+				}
+			}
+			init()
 		}, [])
 
 		// cargar comunas cuando cambia la región para nueva dirección
@@ -320,6 +331,39 @@ export default function BookAppointmentPage() {
 			setSavingGarden(false)
 		}
 	}	// Página con solo el formulario de perfil prefijado
+	if (loading) {
+		return (
+			<div className="min-h-screen bg-[#fefaf2] py-8 px-4 flex items-center justify-center">
+				<div>Cargando...</div>
+			</div>
+		)
+	}
+
+	if (!isAuthenticated) {
+		return (
+			<div className="min-h-screen bg-[#fefaf2] py-8 px-4 flex items-center justify-center">
+				<div className="mx-auto max-w-md rounded-2xl bg-white p-6 shadow text-center">
+					<h1 className="mb-4 text-2xl font-bold text-[#2E5430]">Acceso requerido</h1>
+					<p className="mb-6 text-gray-600">Para agendar una cita, necesitas iniciar sesión o crear una cuenta.</p>
+					<div className="flex gap-4 justify-center">
+						<button 
+							onClick={() => router.push('/login')} 
+							className="rounded bg-[#2E5430] px-4 py-2 text-white hover:bg-[#1f3a23]"
+						>
+							Iniciar sesión
+						</button>
+						<button 
+							onClick={() => router.push('/register')} 
+							className="rounded border border-[#2E5430] px-4 py-2 text-[#2E5430] hover:bg-[#2E5430] hover:text-white"
+						>
+							Crear cuenta
+						</button>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
 	return (
 	 		<div className="min-h-screen bg-[#fefaf2] py-8 px-4">
 	 			<div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
