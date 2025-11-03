@@ -1195,12 +1195,20 @@ app.post("/login", async (req, res) => {
       rol: usuario.rol.codigo,
     });
 
-    // Guardar cookie con el token
+    // Guardar cookie LOCAL
+    //res.cookie("token", token, {
+    //  httpOnly: true,
+    //  secure: false, // cambia a true en producción
+    //  sameSite: "lax",
+    //  maxAge:  24 * 60 * 60 * 1000, // 24 horas
+    //});
+
+    // Guardar cookie PARA PRODUCCION
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false, // cambia a true en producción
-      sameSite: "lax",
-      maxAge:  24 * 60 * 60 * 1000, // 24 horas
+      secure: process.env.NODE_ENV === "production",  // exige HTTPS
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 24 * 60 * 60 * 1000
     });
 
     // Detectar si faltan datos obligatorios
