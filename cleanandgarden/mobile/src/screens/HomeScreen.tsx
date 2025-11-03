@@ -12,8 +12,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../lib/supabase";
 import { StatusBar } from "expo-status-bar";
+
+const API_URL = "https://believable-victory-production.up.railway.app";
 
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
@@ -24,40 +25,23 @@ export default function HomeScreen({ navigation }: any) {
       try {
         setLoading(true);
 
-        const { data: serviciosData, error: serviciosError } = await supabase
-          .from("servicio")
-          .select("id, nombre, descripcion, precio_clp, imagen_id")
-          .eq("activo", true)
-          .limit(5);
+        const response = await fetch(`${API_URL}/servicios`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
 
-        if (serviciosError) throw serviciosError;
+        if (!response.ok) {
+          throw new Error("Error al obtener los servicios desde el servidor");
+        }
 
-        if (!serviciosData || serviciosData.length === 0) {
+        const data = await response.json();
+
+        if (!data || data.length === 0) {
           setServicios([]);
           return;
         }
 
-        const imageIds = serviciosData
-          .map((s) => s.imagen_id)
-          .filter((id) => id !== null);
-
-        if (imageIds.length > 0) {
-          const { data: imagenesData, error: imagenesError } = await supabase
-            .from("imagen")
-            .select("id, url_publica")
-            .in("id", imageIds);
-
-          if (imagenesError) throw imagenesError;
-
-          const serviciosConImagenes = serviciosData.map((servicio) => ({
-            ...servicio,
-            imagen: imagenesData?.find((img) => img.id === servicio.imagen_id),
-          }));
-
-          setServicios(serviciosConImagenes);
-        } else {
-          setServicios(serviciosData);
-        }
+        setServicios(data);
       } catch (err: any) {
         Alert.alert("Error", err?.message || "No se pudieron cargar los servicios");
       } finally {
@@ -73,7 +57,6 @@ export default function HomeScreen({ navigation }: any) {
       <StatusBar style="dark" backgroundColor="#fefaf2" />
       <View style={styles.container}>
         <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
-          {/* HEADER */}
           <View style={styles.header}>
             <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
             <Text style={styles.subtitle}>
@@ -81,7 +64,6 @@ export default function HomeScreen({ navigation }: any) {
             </Text>
           </View>
 
-          {/* BOTÓN DE PERFIL */}
           <View style={styles.headerButtons}>
             <TouchableOpacity
               style={styles.iconButton}
@@ -91,7 +73,6 @@ export default function HomeScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* SERVICIOS */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Nuestros servicios</Text>
@@ -110,9 +91,9 @@ export default function HomeScreen({ navigation }: any) {
                 showsHorizontalScrollIndicator={false}
                 renderItem={({ item }) => (
                   <View style={styles.card}>
-                    {item.imagen?.url_publica ? (
+                    {item.imagen_url ? (
                       <Image
-                        source={{ uri: item.imagen.url_publica }}
+                        source={{ uri: item.imagen_url }}
                         style={styles.cardImage}
                         resizeMode="cover"
                       />
@@ -126,7 +107,7 @@ export default function HomeScreen({ navigation }: any) {
                       {item.descripcion}
                     </Text>
                     <Text style={styles.cardPrice}>
-                       {item.precio_clp?.toLocaleString("es-CL")} CLP
+                      {item.precio_clp?.toLocaleString("es-CL")} CLP
                     </Text>
                   </View>
                 )}
@@ -134,7 +115,6 @@ export default function HomeScreen({ navigation }: any) {
             )}
           </View>
 
-          {/* CTA */}
           <View style={styles.ctaContainer}>
             <TouchableOpacity
               style={styles.ctaButton}
@@ -152,7 +132,7 @@ export default function HomeScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fefaf2", // mismo color del fondo
+    backgroundColor: "#fefaf2",
   },
   container: {
     flex: 1,
@@ -262,30 +242,5 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 16,
-  },
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    height: 65,
-    paddingBottom: 8,
-    elevation: 10,
-  },
-  tabButton: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabLabel: {
-    fontSize: 12,
-    color: "#2E5430",
-    fontWeight: "600",
-    marginTop: 4,
   },
 });

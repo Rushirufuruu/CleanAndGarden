@@ -47,7 +47,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Permitir llamadas sin origin (por ejemplo, desde Postman)
+      
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -614,45 +614,31 @@ app.patch('/admin/portfolio/:id/toggle-publish', async (req, res) => {
 
 // Obtener servicios activos
 app.get('/servicios', async (req, res) => {
-  try {
-    const servicios = await prisma.servicio.findMany({
-      where: { 
-        activo: true 
-      },
-      select: {
-        id: true,
-        nombre: true,
-        descripcion: true,
-        duracion_minutos: true,
-        precio_clp: true,
-        imagen: {
-          select: {
-            url_publica: true,
-            clave_storage: true
-          }
-        }
-      },
-      orderBy: { 
-        nombre: 'asc' 
-      }
-    });
+  const servicios = await prisma.servicio.findMany({
+    where: { activo: true },
+    select: {
+      id: true,
+      nombre: true,
+      descripcion: true,
+      duracion_minutos: true,
+      precio_clp: true,
+      imagen: { select: { url_publica: true } }
+    }
+  });
 
-    // Transformar los datos para el frontend
-    const serviciosFormatted = servicios.map(servicio => ({
-      id: String(servicio.id),
-      title: servicio.nombre,
-      description: servicio.descripcion || 'Servicio profesional de calidad.',
-      imageUrl: servicio.imagen?.url_publica || '/images/placeholder-service.jpg',
-      duracion: servicio.duracion_minutos || 0,
-      precio: servicio.precio_clp ? Number(servicio.precio_clp) : null
-    }));
+  const serviciosFormatted = servicios.map(s => ({
+    id: Number(s.id),
+    nombre: s.nombre,
+    descripcion: s.descripcion,
+    duracion: s.duracion_minutos || 0, 
+    precio: s.precio_clp ? Number(s.precio_clp) : 0, 
+    imagenUrl: s.imagen?.url_publica || null, 
+    activo: true
+  }));
 
-    res.json(toJSONSafe(serviciosFormatted));
-  } catch (err: any) {
-    console.error(" Error al obtener servicios:", err);
-    res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
-  }
+  res.json(toJSONSafe(serviciosFormatted));
 });
+
 
 // Obtener todos los servicios para admin (incluye inactivos)
 app.get('/admin/servicios', async (req, res) => {
