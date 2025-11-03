@@ -16,7 +16,7 @@ export default function OurServicesPage() {
         setIsLoading(true);
         setError(null);
         
-        console.log('🔍 Consultando servicios desde Supabase...');
+        console.log('Consultando servicios desde Supabase...');
         
         // Consultar servicios activos desde Supabase
         const { data, error } = await supabase
@@ -25,26 +25,26 @@ export default function OurServicesPage() {
           .eq("activo", true)
           .limit(10);
 
-        console.log('📦 Datos recibidos:', data);
-        console.log('❌ Error:', error);
+        console.log('Datos recibidos:', data);
+        console.log('Error:', error);
 
         if (error) throw error;
 
         if (!data || data.length === 0) {
-          console.log('⚠️ No hay servicios activos');
+          console.log('No hay servicios activos');
           setServices([]);
           return;
         }
 
-        console.log(`✅ Encontrados ${data.length} servicios activos`);
+        console.log(`Encontrados ${data.length} servicios activos`);
 
         // Obtener las URLs de las imágenes
         const imageIds = data
           .map(item => item.imagen_id)
           .filter(id => id !== null);
 
-        console.log('🖼️ Image IDs a consultar:', imageIds);
-        console.log('🖼️ Servicios con imagen_id:', data.map(s => ({ nombre: s.nombre, imagen_id: s.imagen_id })));
+        console.log('Image IDs a consultar:', imageIds);
+        console.log('Servicios con imagen_id:', data.map(s => ({ nombre: s.nombre, imagen_id: s.imagen_id })));
 
         let imageUrls: Record<number, string> = {};
         if (imageIds.length > 0) {

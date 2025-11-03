@@ -10,8 +10,9 @@ import {
   Image,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../lib/supabase";
+import { StatusBar } from "expo-status-bar";
 
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
@@ -21,70 +22,15 @@ export default function HomeScreen({ navigation }: any) {
     const fetchServicios = async () => {
       try {
         setLoading(true);
-        
-        console.log('🔍 Consultando servicios desde Supabase (mobile)...');
-        
-        // 1. Obtener servicios activos
-        const { data: serviciosData, error: serviciosError } = await supabase
-          .from("servicio")
-          .select("id, nombre, descripcion, precio_clp, imagen_id")
-          .eq("activo", true)
-          .limit(5);
 
-        console.log('📦 Datos servicios:', serviciosData);
-        console.log('❌ Error servicios:', serviciosError);
+        const response = await fetch(
+          "https://believable-victory-production.up.railway.app/servicios"
+        );
+        if (!response.ok) throw new Error("Error al obtener los servicios");
 
-        if (serviciosError) {
-          console.error("❌ ERROR COMPLETO:", JSON.stringify(serviciosError, null, 2));
-          Alert.alert("Error en Servicios", serviciosError.message || "Error desconocido");
-          throw serviciosError;
-        }
-
-        if (!serviciosData || serviciosData.length === 0) {
-          console.log('⚠️ No hay servicios activos');
-          setServicios([]);
-          return;
-        }
-
-        console.log(`✅ Encontrados ${serviciosData.length} servicios`);
-
-        // 2. Obtener imágenes de los servicios
-        const imageIds = serviciosData
-          .map(s => s.imagen_id)
-          .filter(id => id !== null);
-
-        console.log('🖼️ Image IDs a consultar:', imageIds);
-
-        if (imageIds.length > 0) {
-          const { data: imagenesData, error: imagenesError } = await supabase
-            .from("imagen")
-            .select("id, url_publica")
-            .in("id", imageIds);
-
-          console.log('🖼️ Imágenes obtenidas:', imagenesData);
-          console.log('❌ Error imágenes:', imagenesError);
-
-          if (imagenesError) {
-            console.error("❌ ERROR EN IMÁGENES:", JSON.stringify(imagenesError, null, 2));
-            Alert.alert("Error en Imágenes", imagenesError.message || "Error desconocido");
-          }
-
-          // 3. Combinar datos
-          const serviciosConImagenes = serviciosData.map(servicio => ({
-            ...servicio,
-            imagen: imagenesData?.find(img => img.id === servicio.imagen_id)
-          }));
-
-          console.log('✅ Servicios con imágenes combinados:', serviciosConImagenes.length);
-          setServicios(serviciosConImagenes);
-        } else {
-          console.log('⚠️ No hay imágenes para cargar');
-          setServicios(serviciosData);
-        }
+        const data = await response.json();
+        setServicios(data);
       } catch (err: any) {
-        console.error("💥 Error general:", err);
-        console.error("💥 Error mensaje:", err?.message);
-        console.error("💥 Error stack:", err?.stack);
         Alert.alert("Error", err?.message || "No se pudieron cargar los servicios");
       } finally {
         setLoading(false);
@@ -95,82 +41,91 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
 
   return (
-    <ScrollView style={styles.container}>
-      {/* HEADER */}
-      <View style={styles.header}>
-        <Text style={styles.title}>🌿 Bienvenido a Clean & Garden</Text>
-        <Text style={styles.subtitle}>
-          Cuida tus espacios verdes con nuestros servicios profesionales.
-        </Text>
-      </View>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <StatusBar style="dark" backgroundColor="#fefaf2" />
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+          {/* HEADER */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
+            <Text style={styles.subtitle}>
+              Cuida tus espacios verdes con nuestros servicios profesionales.
+            </Text>
+          </View>
 
-      {/* BOTÓN DE PERFIL */}
-      <View style={styles.headerButtons}>
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
-        >
-          <Ionicons name="person-circle-outline" size={30} color="#2E5430" />
-        </TouchableOpacity>
-      </View>
+          {/* BOTÓN DE PERFIL */}
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
+            >
+              <Ionicons name="person-circle-outline" size={30} color="#2E5430" />
+            </TouchableOpacity>
+          </View>
 
-      {/* SERVICIOS */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Nuestros servicios</Text>
-          <TouchableOpacity onPress={() => Alert.alert("Próximamente")}>
-            <Text style={styles.verMas}>Ver todos</Text>
-          </TouchableOpacity>
-        </View>
+          {/* SERVICIOS */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Nuestros servicios</Text>
+              <TouchableOpacity onPress={() => Alert.alert("Próximamente")}>
+                <Text style={styles.verMas}>Ver todos</Text>
+              </TouchableOpacity>
+            </View>
 
-        {loading ? (
-          <ActivityIndicator color="#2E5430" size="large" />
-        ) : (
-          <FlatList
-            data={servicios}
-            keyExtractor={(item) => item.id.toString()}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <View style={styles.card}>
-                {item.imagen?.url_publica ? (
-                  <Image
-                    source={{ uri: item.imagen.url_publica }}
-                    style={styles.cardImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.imagePlaceholder}>
-                    <Ionicons name="leaf-outline" size={40} color="#2E5430" />
+            {loading ? (
+              <ActivityIndicator color="#2E5430" size="large" />
+            ) : (
+              <FlatList
+                data={servicios}
+                keyExtractor={(item) => item.id.toString()}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <View style={styles.card}>
+                    {item.imagenUrl ? (
+                      <Image
+                        source={{ uri: item.imagenUrl }}
+                        style={styles.cardImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.imagePlaceholder}>
+                        <Ionicons name="leaf-outline" size={40} color="#2E5430" />
+                      </View>
+                    )}
+                    <Text style={styles.cardTitle}>{item.nombre}</Text>
+                    <Text style={styles.cardDesc} numberOfLines={2}>
+                      {item.descripcion}
+                    </Text>
+                    <Text style={styles.cardPrice}>
+                      {item.precio?.toLocaleString("es-CL")} CLP
+                    </Text>
                   </View>
                 )}
-                <Text style={styles.cardTitle}>{item.nombre}</Text>
-                <Text style={styles.cardDesc} numberOfLines={2}>
-                  {item.descripcion}
-                </Text>
-                <Text style={styles.cardPrice}>
-                  💰 {item.precio_clp?.toLocaleString("es-CL")} CLP
-                </Text>
-              </View>
+              />
             )}
-          />
-        )}
-      </View>
+          </View>
 
-      {/* CTA */}
-      <View style={styles.ctaContainer}>
-        <TouchableOpacity
-          style={styles.ctaButton}
-          onPress={() => Alert.alert("Agendar", "Funcionalidad próximamente")}
-        >
-          <Text style={styles.ctaText}>🗓️ Agenda tu servicio ahora</Text>
-        </TouchableOpacity>
+          {/* CTA */}
+          <View style={styles.ctaContainer}>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => Alert.alert("Agendar", "Funcionalidad próximamente")}
+            >
+              <Text style={styles.ctaText}>Agenda tu servicio ahora</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#fefaf2",
+  },
   container: {
     flex: 1,
     backgroundColor: "#fefaf2",

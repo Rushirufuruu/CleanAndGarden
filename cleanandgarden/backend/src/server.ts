@@ -30,12 +30,41 @@ declare global {
 }
 
 // Creamos la app de Express (hay que pensarlo como el "router" principal de la API)
-const app = express()
-// Habilita CORS: permite que el front pueda llamar a la api
-app.use(cors({
-  origin: process.env.FRONTEND_URL, //  dirección exacta de tu frontend
-  credentials: true,               //  habilita envío de cookies
-}));
+
+
+const app = express();
+
+// ==========================================
+// CONFIGURACIÓN CORS (Railway + Vercel + Local)
+// ==========================================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:19006",
+  "exp://127.0.0.1:19000",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+
+      // Permite localhost, Expo y cualquier dominio *.vercel.app
+      const isLocalOrExpo = allowedOrigins.includes(origin);
+      const isVercelDomain = /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin);
+
+      if (isLocalOrExpo || isVercelDomain) {
+        callback(null, true);
+      } else {
+        console.warn(`CORS bloqueado para origen no permitido: ${origin}`);
+        callback(new Error("No autorizado por CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
+
+
+
 
 
 app.use(express.json());
@@ -592,45 +621,31 @@ app.patch('/admin/portfolio/:id/toggle-publish', async (req, res) => {
 
 // Obtener servicios activos
 app.get('/servicios', async (req, res) => {
-  try {
-    const servicios = await prisma.servicio.findMany({
-      where: { 
-        activo: true 
-      },
-      select: {
-        id: true,
-        nombre: true,
-        descripcion: true,
-        duracion_minutos: true,
-        precio_clp: true,
-        imagen: {
-          select: {
-            url_publica: true,
-            clave_storage: true
-          }
-        }
-      },
-      orderBy: { 
-        nombre: 'asc' 
-      }
-    });
+  const servicios = await prisma.servicio.findMany({
+    where: { activo: true },
+    select: {
+      id: true,
+      nombre: true,
+      descripcion: true,
+      duracion_minutos: true,
+      precio_clp: true,
+      imagen: { select: { url_publica: true } }
+    }
+  });
 
-    // Transformar los datos para el frontend
-    const serviciosFormatted = servicios.map(servicio => ({
-      id: String(servicio.id),
-      title: servicio.nombre,
-      description: servicio.descripcion || 'Servicio profesional de calidad.',
-      imageUrl: servicio.imagen?.url_publica || '/images/placeholder-service.jpg',
-      duracion: servicio.duracion_minutos || 0,
-      precio: servicio.precio_clp ? Number(servicio.precio_clp) : null
-    }));
+  const serviciosFormatted = servicios.map(s => ({
+    id: Number(s.id),
+    nombre: s.nombre,
+    descripcion: s.descripcion,
+    duracion: s.duracion_minutos || 0, 
+    precio: s.precio_clp ? Number(s.precio_clp) : 0, 
+    imagenUrl: s.imagen?.url_publica || null, 
+    activo: true
+  }));
 
-    res.json(toJSONSafe(serviciosFormatted));
-  } catch (err: any) {
-    console.error(" Error al obtener servicios:", err);
-    res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
-  }
+  res.json(toJSONSafe(serviciosFormatted));
 });
+
 
 // Obtener todos los servicios para admin (incluye inactivos)
 app.get('/admin/servicios', async (req, res) => {
@@ -3373,6 +3388,55 @@ app.put("/admin/excepciones/:id", verifyAdmin, async (req, res) => {
 
 
 
+
+//====================================================================================================
+// Verificar variables de entorno al inicio
+console.log("Verificando configuración...");
+console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Configurado" : "Falta");
+console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
+console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
+
+
+// ====================================================================================
+// Configuración del puerto dinámico (Railway, Render, etc.)
+// ====================================================================================
+const PORT = Number(process.env.PORT) || 8080;
+
+// Crear servidor HTTP (necesario para usar WebSocket en el mismo servidor)
+const server = createServer(app);
+
+// Iniciar servidor
+server.listen(PORT, () => {
+  console.log(`API backend + WebSocket listening on port ${PORT}`);
+});
+
+// Inicializar WebSocket sobre el mismo servidor HTTP
+global.chatWebSocketInstance = new ChatWebSocket(server);
+
+// 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
+setInterval(async () => {
+  try {
+    const now = new Date();
+
+    const deletedConfirm = await prisma.confirm_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const deletedReset = await prisma.reset_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const total = deletedConfirm.count + deletedReset.count;
+    if (total > 0) {
+      console.log(
+        `Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
+      );
+    }
+  } catch (err) {
+    console.error("Error limpiando tokens expirados:", err);
+  }
+}, 5 * 60 * 1000); // cada 5 minutos
 
 // ==========================================
 // 💬 ENDPOINTS DE CHAT / MENSAJERÍA

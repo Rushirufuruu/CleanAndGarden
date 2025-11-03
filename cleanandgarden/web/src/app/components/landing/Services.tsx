@@ -1,4 +1,4 @@
-// src/app/components/Servicios.tsx
+
 "use client";
 import Image from "next/image";
 import { useState, useEffect } from "react";
@@ -23,9 +23,9 @@ export default function Services() {
     try {
       setIsLoading(true);
       setError(null);
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/servicios`);
-
+      
+      const response = await fetch('https://believable-victory-production.up.railway.app/servicios');
+      
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
