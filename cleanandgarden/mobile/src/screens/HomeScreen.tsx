@@ -14,8 +14,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 
-const API_URL = "https://believable-victory-production.up.railway.app";
-
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,22 +23,12 @@ export default function HomeScreen({ navigation }: any) {
       try {
         setLoading(true);
 
-        const response = await fetch(`${API_URL}/servicios`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (!response.ok) {
-          throw new Error("Error al obtener los servicios desde el servidor");
-        }
+        const response = await fetch(
+          "https://believable-victory-production.up.railway.app/servicios"
+        );
+        if (!response.ok) throw new Error("Error al obtener los servicios");
 
         const data = await response.json();
-
-        if (!data || data.length === 0) {
-          setServicios([]);
-          return;
-        }
-
         setServicios(data);
       } catch (err: any) {
         Alert.alert("Error", err?.message || "No se pudieron cargar los servicios");
@@ -57,6 +45,7 @@ export default function HomeScreen({ navigation }: any) {
       <StatusBar style="dark" backgroundColor="#fefaf2" />
       <View style={styles.container}>
         <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+          {/* HEADER */}
           <View style={styles.header}>
             <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
             <Text style={styles.subtitle}>
@@ -64,6 +53,7 @@ export default function HomeScreen({ navigation }: any) {
             </Text>
           </View>
 
+          {/* BOTÓN DE PERFIL */}
           <View style={styles.headerButtons}>
             <TouchableOpacity
               style={styles.iconButton}
@@ -73,6 +63,7 @@ export default function HomeScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
+          {/* SERVICIOS */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Nuestros servicios</Text>
@@ -91,9 +82,9 @@ export default function HomeScreen({ navigation }: any) {
                 showsHorizontalScrollIndicator={false}
                 renderItem={({ item }) => (
                   <View style={styles.card}>
-                    {item.imagen_url ? (
+                    {item.imagenUrl ? (
                       <Image
-                        source={{ uri: item.imagen_url }}
+                        source={{ uri: item.imagenUrl }}
                         style={styles.cardImage}
                         resizeMode="cover"
                       />
@@ -107,7 +98,7 @@ export default function HomeScreen({ navigation }: any) {
                       {item.descripcion}
                     </Text>
                     <Text style={styles.cardPrice}>
-                      {item.precio_clp?.toLocaleString("es-CL")} CLP
+                      {item.precio?.toLocaleString("es-CL")} CLP
                     </Text>
                   </View>
                 )}
@@ -115,6 +106,7 @@ export default function HomeScreen({ navigation }: any) {
             )}
           </View>
 
+          {/* CTA */}
           <View style={styles.ctaContainer}>
             <TouchableOpacity
               style={styles.ctaButton}

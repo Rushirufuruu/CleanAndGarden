@@ -21,7 +21,7 @@ export default function LatestJobs() {
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch('http://localhost:3001/portfolio');
+      const response = await fetch('https://believable-victory-production.up.railway.app/portfolio');
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);

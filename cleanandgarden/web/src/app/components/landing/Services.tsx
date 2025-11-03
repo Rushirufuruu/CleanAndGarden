@@ -24,7 +24,7 @@ export default function Services() {
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch('http://localhost:3001/servicios');
+      const response = await fetch('https://believable-victory-production.up.railway.app/servicios');
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
