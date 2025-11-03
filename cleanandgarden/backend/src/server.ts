@@ -37,29 +37,13 @@ const app = express();
 // ==========================================
 // CONFIGURACIÓN CORS (Railway + Vercel + Local)
 // ==========================================
-const allowedOrigins = [
-  process.env.FRONTEND_URL || "http://localhost:3000", // dominio en .env
-  "http://localhost:3000", // desarrollo web local
-  "http://localhost:19006", // Expo Go (React Native local)
-  "exp://127.0.0.1:19000"  // Expo dev
-];
-
 app.use(
   cors({
-    origin: function (origin, callback) {
-      
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        console.warn(`CORS bloqueado para origen no permitido: ${origin}`);
-        return callback(new Error("No autorizado por CORS"));
-      }
-    },
-    credentials: true // permite cookies, JWT, etc.
+    origin: true,  // permite cualquier origen
+    credentials: true,
   })
 );
+
 
 
 app.use(express.json());
