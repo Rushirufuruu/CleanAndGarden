@@ -30,12 +30,37 @@ declare global {
 }
 
 // Creamos la app de Express (hay que pensarlo como el "router" principal de la API)
-const app = express()
-// Habilita CORS: permite que el front pueda llamar a la api
-app.use(cors({
-  origin: "http://localhost:3000", //  dirección exacta de tu frontend
-  credentials: true,               //  habilita envío de cookies
-}));
+
+
+const app = express();
+
+// ==========================================
+// CONFIGURACIÓN CORS (Railway + Vercel + Local)
+// ==========================================
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:3000", // dominio en .env
+  "http://localhost:3000", // desarrollo web local
+  "http://localhost:19006", // Expo Go (React Native local)
+  "exp://127.0.0.1:19000"  // Expo dev
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Permitir llamadas sin origin (por ejemplo, desde Postman)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        console.warn(`CORS bloqueado para origen no permitido: ${origin}`);
+        return callback(new Error("No autorizado por CORS"));
+      }
+    },
+    credentials: true // permite cookies, JWT, etc.
+  })
+);
+
 
 app.use(express.json());
 app.use(cookieParser());
@@ -3380,7 +3405,7 @@ const server = createServer(app);
 
 // Iniciar servidor
 server.listen(PORT, () => {
-  console.log(`🚀 API backend + WebSocket listening on port ${PORT}`);
+  console.log(`API backend + WebSocket listening on port ${PORT}`);
 });
 
 // Inicializar WebSocket sobre el mismo servidor HTTP
