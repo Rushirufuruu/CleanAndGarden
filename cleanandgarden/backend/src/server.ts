@@ -37,12 +37,32 @@ const app = express();
 // ==========================================
 // CONFIGURACIÓN CORS (Railway + Vercel + Local)
 // ==========================================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:19006",
+  "exp://127.0.0.1:19000",
+];
+
 app.use(
   cors({
-    origin: true,  // permite cualquier origen
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+
+      // Permite localhost, Expo y cualquier dominio *.vercel.app
+      const isLocalOrExpo = allowedOrigins.includes(origin);
+      const isVercelDomain = /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin);
+
+      if (isLocalOrExpo || isVercelDomain) {
+        callback(null, true);
+      } else {
+        console.warn(`CORS bloqueado para origen no permitido: ${origin}`);
+        callback(new Error("No autorizado por CORS"));
+      }
+    },
     credentials: true,
   })
 );
+
 
 
 
