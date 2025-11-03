@@ -1210,6 +1210,7 @@ app.post("/login", async (req, res) => {
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 24 * 60 * 60 * 1000
     });
+    console.log('entorno',process.env.NODE_ENV)
 
     // Detectar si faltan datos obligatorios
     const faltanDatos =
@@ -1428,7 +1429,7 @@ app.post("/reset-password", async (req: Request, res: Response) => {
 app.post("/logout", (_req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     secure: process.env.NODE_ENV === "production",
   });
   res.json({ message: "Sesión cerrada correctamente" });
