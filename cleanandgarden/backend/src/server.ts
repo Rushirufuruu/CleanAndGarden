@@ -2108,6 +2108,7 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
     // Enviar correo de confirmación
     const transporter = nodemailer.createTransport({
       service: "gmail",
+      pool: true,
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
 
