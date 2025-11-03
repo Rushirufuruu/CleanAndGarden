@@ -2910,6 +2910,39 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
       include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
     });
 
+    console.log('ADMIN ENDPOINT - Filtro:', filtro);
+    console.log('ADMIN ENDPOINT - Slots encontrados:', disponibilidad.length);
+    disponibilidad.forEach(slot => {
+      console.log(`ADMIN - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
+    });
+
+    // Para cada slot, obtener las citas asociadas con detalles
+    const disponibilidadConCitas = await Promise.all(
+      disponibilidad.map(async (slot) => {
+        const citas = await prisma.cita.findMany({
+          where: {
+            tecnico_id: slot.tecnico_id,
+            fecha_hora: {
+              gte: slot.hora_inicio,
+              lt: slot.hora_fin
+            },
+            estado: { in: ['pendiente', 'confirmada'] }
+          },
+          include: {
+            jardin: { select: { id: true, nombre: true } },
+            servicio: { select: { id: true, nombre: true, precio_clp: true } },
+            usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
+          },
+          orderBy: { fecha_creacion: 'asc' }
+        });
+
+        return {
+          ...slot,
+          citas: citas
+        };
+      })
+    );
+
     // 🔹 Excepciones dentro del mismo rango (globales o del técnico)
     const excepcionFiltro: any = {
       OR: [
@@ -2946,7 +2979,7 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
 
 
     res.json({
-      data: toJSONSafe(disponibilidad),
+      data: toJSONSafe(disponibilidadConCitas),
       excepciones: toJSONSafe(excepciones),
     });
   } catch (err) {
@@ -2975,7 +3008,8 @@ app.get("/disponibilidad-mensual", async (req, res) => {
     } else {
       const now = new Date();
       const firstLocal = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      // Mostrar los próximos 3 meses en lugar de solo el mes actual
+      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 3, 0);
       rangoDesde = toPgDateLocal(firstLocal);
       rangoHasta = toPgDateLocal(lastLocal);
     }
@@ -2989,11 +3023,46 @@ app.get("/disponibilidad-mensual", async (req, res) => {
     const disponibilidad = await prisma.disponibilidad_mensual.findMany({
       where: filtro,
       orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
-      include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true, rol: true } }
+      },
     });
 
-    // No incluimos excepciones aquí (frontend sólo necesita slots activos para reservar)
-    res.json({ data: toJSONSafe(disponibilidad) });
+    console.log('PUBLIC ENDPOINT - Filtro:', filtro);
+    console.log('PUBLIC ENDPOINT - Slots encontrados:', disponibilidad.length);
+    disponibilidad.forEach(slot => {
+      console.log(`PUBLIC - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
+    });
+
+    // Para cada slot, obtener las citas asociadas con detalles
+    const disponibilidadConCitas = await Promise.all(
+      disponibilidad.map(async (slot) => {
+        const citas = await prisma.cita.findMany({
+          where: {
+            tecnico_id: slot.tecnico_id,
+            fecha_hora: {
+              gte: slot.hora_inicio,
+              lt: slot.hora_fin
+            },
+            estado: { in: ['pendiente', 'confirmada'] }
+          },
+          include: {
+            jardin: { select: { id: true, nombre: true } },
+            servicio: { select: { id: true, nombre: true, precio_clp: true } },
+            usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
+          },
+          orderBy: { fecha_creacion: 'asc' }
+        });
+
+        return {
+          ...slot,
+          citas: citas
+        };
+      })
+    );
+
+    // No incluimos excepciones aquí (frontend necesita slots con información de citas)
+    res.json({ data: toJSONSafe(disponibilidadConCitas) });
   } catch (err) {
     console.error("❌ Error al listar disponibilidad pública:", err);
     res.status(500).json({ error: "Error al listar disponibilidad" });
@@ -4030,11 +4099,17 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
 
     // Si se especifica un rol, filtrar por él (pero respetando permisos)
     if (rol) {
-      if (userRol === 'cliente' && !['admin', 'jardinero'].includes(rol as string)) {
+      const rolStr = String(rol).toLowerCase();
+      // permiso: clientes sólo pueden buscar admins y jardineros (aceptamos código o nombre)
+      if (userRol === 'cliente' && !['admin', 'jardinero'].includes(rolStr)) {
         return res.status(403).json({ error: 'No tienes permiso para buscar este tipo de usuarios' });
       }
+      // Filtrar por código o por nombre del rol (insensible a mayúsculas)
       whereClause.rol = {
-        codigo: rol as string
+        OR: [
+          { codigo: { equals: rolStr, mode: 'insensitive' } },
+          { nombre: { contains: rolStr, mode: 'insensitive' } }
+        ]
       };
     }
 
@@ -4078,6 +4153,35 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
     res.status(500).json({ error: 'Error al buscar usuarios' });
   }
 });
+
+// PUBLIC: listar jardineros activos (sin autenticación)
+app.get('/public/jardineros', async (_req: Request, res: Response) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        activo: true,
+        OR: [
+          { rol: { codigo: { equals: 'jardinero', mode: 'insensitive' } } },
+          { rol: { nombre: { contains: 'jardinero', mode: 'insensitive' } } }
+        ]
+      },
+      select: { id: true, nombre: true, apellido: true, email: true, rol: { select: { codigo: true, nombre: true } } }
+    })
+
+    const usuariosFormatted = usuarios.map(u => ({
+      id: Number(u.id),
+      nombre: u.nombre,
+      apellido: u.apellido,
+      email: u.email,
+      rol: u.rol ? (u.rol.nombre ?? u.rol.codigo) : null
+    }))
+
+    res.json(toJSONSafe(usuariosFormatted))
+  } catch (err) {
+    console.error('❌ Error al listar jardineros públicos:', err)
+    res.status(500).json({ error: 'Error al listar jardineros' })
+  }
+})
 
 
 

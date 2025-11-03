@@ -172,6 +172,17 @@ export default function BookAppointmentPage() {
 								const tBody = await tRes.json()
 								const jards = Array.isArray(tBody) ? tBody : []
 								setTecnicos(jards)
+							} else {
+								// si la llamada autenticada falla (por ejemplo 401), intentar endpoint público
+								try {
+									const pub = await fetch(`${API}/public/jardineros`)
+									if (pub.ok) {
+										const pBody = await pub.json()
+										setTecnicos(Array.isArray(pBody) ? pBody : [])
+									}
+								} catch (err) {
+									console.debug('public jardineros load failed', err)
+								}
 							}
 						} catch (err) {
 							console.debug('load jardineros failed', err)
@@ -191,6 +202,33 @@ export default function BookAppointmentPage() {
 				}
 			}
 			init()
+		}, [])
+
+		// Cargar jardineros también en modo público si el usuario no está autenticado
+		useEffect(() => {
+			const loadJardinerosPublic = async () => {
+				try {
+					const tRes = await fetch(`${API}/usuarios/buscar?rol=jardinero`, { credentials: 'include' })
+					if (tRes.ok) {
+						const tBody = await tRes.json()
+						setTecnicos(Array.isArray(tBody) ? tBody : [])
+						return
+					}
+				} catch (err) {
+					// ignore
+				}
+				// fallback público
+				try {
+					const pub = await fetch(`${API}/public/jardineros`)
+					if (pub.ok) {
+						const pBody = await pub.json()
+						setTecnicos(Array.isArray(pBody) ? pBody : [])
+					}
+				} catch (err) {
+					console.debug('public jardineros load failed', err)
+				}
+			}
+			loadJardinerosPublic()
 		}, [])
 
 		// cargar comunas cuando cambia la región para nueva dirección
@@ -300,17 +338,67 @@ export default function BookAppointmentPage() {
 		}
 	}
 
-		// cargar slots cuando cambie técnico o mes
+		// cargar slots cuando cambia el jardinero seleccionado
 		useEffect(() => {
-			if (selectedTecnicoId && selectedMes) {
-				fetch(`${API}/disponibilidad-mensual?usuarioId=${selectedTecnicoId}&mes=${selectedMes}`)
+			if (selectedTecnicoId) {
+				fetch(`${API}/disponibilidad-mensual?usuarioId=${selectedTecnicoId}`)
 					.then(res => res.json())
-					.then(data => setSlots(Array.isArray(data?.data) ? data.data.filter((s: any) => (s.cupos_ocupados ?? 0) < (s.cupos_totales ?? 1)) : []))
+					.then(data => {
+						const allSlots = Array.isArray(data?.data) ? data.data : [];
+						// TEMPORAL: Mostrar TODOS los slots para comparar con gestión
+						const validSlots = allSlots;
+
+						console.log('Slots from API:', allSlots);
+						console.log('Filtered slots:', validSlots);
+
+						// Crear un calendario completo con los próximos 30 días
+						const today = new Date();
+						today.setHours(0, 0, 0, 0);
+						const calendarSlots = [];
+
+						// Agregar slots existentes
+						for (const slot of validSlots) {
+							calendarSlots.push(slot);
+						}
+
+						// Agregar días vacíos para los próximos 30 días (solo si no tienen slots)
+						for (let i = 0; i < 30; i++) {
+							const futureDate = new Date(today);
+							futureDate.setDate(today.getDate() + i);
+
+							const dateKey = `${futureDate.getDate().toString().padStart(2, '0')}/${(futureDate.getMonth() + 1).toString().padStart(2, '0')}/${futureDate.getFullYear()}`;
+
+							// Verificar si ya existe un slot para este día
+							const hasSlotForDay = validSlots.some((slot: any) => {
+								const slotDate = new Date(slot.fecha);
+								const slotDateKey = `${slotDate.getDate().toString().padStart(2, '0')}/${(slotDate.getMonth() + 1).toString().padStart(2, '0')}/${slotDate.getFullYear()}`;
+								return slotDateKey === dateKey;
+							});
+
+							if (!hasSlotForDay) {
+								// Crear un slot "vacío" para este día
+								calendarSlots.push({
+									id: `empty-${dateKey}`,
+									fecha: futureDate.toISOString().split('T')[0],
+									hora_inicio: `${futureDate.toISOString().split('T')[0]}T12:00:00.000Z`,
+									hora_fin: `${futureDate.toISOString().split('T')[0]}T13:00:00.000Z`,
+									cupos_totales: 0,
+									cupos_ocupados: 0,
+									isEmpty: true,
+									tecnico_id: selectedTecnicoId,
+									usuario: { nombre: '', apellido: '' },
+									citas: []
+								} as any);
+							}
+						}
+
+						setSlots(calendarSlots);
+					})
 					.catch(err => console.debug('load slots failed', err))
 			} else {
 				setSlots([])
 			}
-		}, [selectedTecnicoId, selectedMes])
+		}, [selectedTecnicoId])
 
 	// Crear un jardín inline
 	async function createGarden() {
@@ -383,6 +471,39 @@ export default function BookAppointmentPage() {
 			setError('Faltan datos para reservar la cita')
 			return
 		}
+
+		// Validar que el slot seleccionado aún sea válido
+		const selectedSlot = slots.find(s => s.id === selectedSlotId)
+		if (!selectedSlot) {
+			setError('El horario seleccionado ya no está disponible')
+			setSelectedSlotId(null)
+			return
+		}
+
+		// Validar fecha y hora del slot
+		const now = new Date()
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+		const slotDate = new Date(selectedSlot.fecha)
+		const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate())
+		const slotStartTime = new Date(selectedSlot.hora_inicio).getTime()
+
+		const isFutureDate = slotDateOnly > today
+		const isTodayWithFutureTime = slotDateOnly.getTime() === today.getTime() &&
+			slotStartTime > (now.getTime() + 30 * 60 * 1000) // 30 minutos de margen
+
+		if (!isFutureDate && !isTodayWithFutureTime) {
+			setError('Este horario ya no está disponible (fecha/hora pasada)')
+			setSelectedSlotId(null)
+			return
+		}
+
+		// Verificar que tenga cupos disponibles
+		if ((selectedSlot.cupos_ocupados ?? 0) >= (selectedSlot.cupos_totales ?? 1)) {
+			setError('Este horario ya está ocupado')
+			setSelectedSlotId(null)
+			return
+		}
+
 		setReservando(true)
 		try {
 			const res = await fetch(`${API}/cita/reservar`, {
@@ -690,40 +811,159 @@ export default function BookAppointmentPage() {
 							</div>
 
 							{/* Seleccionar Mes */}
-							<div>
-								<label className="block text-sm font-medium mb-1">Mes *</label>
-								<select 
-									value={selectedMes} 
-									onChange={(e) => {
-										setSelectedMes(e.target.value)
-										setSlots([])
-										setSelectedSlotId(null)
-									}} 
-									className="w-full rounded border px-3 py-2" 
-									disabled={!selectedTecnicoId}
-								>
-									<option value="">Selecciona un mes</option>
-									<option value="2024-12">Diciembre 2024</option>
-									<option value="2025-01">Enero 2025</option>
-									<option value="2025-02">Febrero 2025</option>
-									<option value="2025-03">Marzo 2025</option>
-								</select>
-							</div>
+							{/* Calendario de Disponibilidad Real */}
+							{selectedTecnicoId && slots.length === 0 && (
+								<div className="mt-6">
+									<label className="block text-sm font-medium mb-2">Disponibilidad del jardinero</label>
+									<div className="border rounded p-4 bg-yellow-50 border-yellow-200">
+										<p className="text-yellow-800 text-center">
+											No hay horarios disponibles para este jardinero en las próximas fechas.
+											Esto puede deberse a que no tiene horarios configurados o todos los horarios disponibles ya pasaron.
+										</p>
+									</div>
+								</div>
+							)}
+							{slots.length > 0 && (
+								<div className="mt-6">
+									<label className="block text-sm font-medium mb-2">Disponibilidad del jardinero</label>
+									<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+										 {Object.entries(
+											 slots.reduce((acc: Record<string, any[]>, slot: any) => {
+												 const fecha = new Date(slot.fecha);
+												 const diaKey = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
+												 if (!acc[diaKey]) acc[diaKey] = []
+												 acc[diaKey].push(slot)
+												 return acc
+											 }, {} as Record<string, any[]>)
+										 ).map(([dia, daySlots]) => {
+											 return (
+											 <div key={dia} className="border rounded p-3 bg-gray-50">
+												 <div className="font-semibold mb-3 text-center bg-green-100 text-green-800 px-2 py-1 rounded">
+													 {dia}
+												 </div>
+												 <div className="space-y-2">
+												 {(daySlots as any[]).map((slot) => {
+														 const horaInicio = new Date(slot.hora_inicio).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+														 const horaFin = new Date(slot.hora_fin).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+														 const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
+														 const hasCitas = slot.citas && slot.citas.length > 0;
+														 const isEmpty = slot.isEmpty;
+
+														 if (isEmpty) {
+															 return (
+																 <div
+																	 key={slot.id}
+																	 className="p-3 border rounded bg-gray-100 cursor-not-allowed"
+																 >
+																	 <div className="text-sm font-medium text-gray-500">
+																		 Sin horarios disponibles
+																	 </div>
+																	 <div className="text-xs text-gray-400 mt-1">
+																		 No hay disponibilidad este día
+																	 </div>
+																 </div>
+															 );
+														 }
+
+														 return (
+															 <div
+																 key={slot.id}
+																 onClick={() => isAvailable && setSelectedSlotId(slot.id)}
+																 className={`p-3 border rounded cursor-pointer hover:bg-gray-100 transition-colors ${
+																	 selectedSlotId === slot.id 
+																	 	? 'border-green-500 bg-green-50' 
+																	 	: isAvailable 
+																	 		? 'border-gray-300' 
+																	 		: 'border-red-300 bg-red-50 cursor-not-allowed'
+																 }`}
+															 >
+																 <div className="text-sm font-medium">
+																	 {horaInicio} - {horaFin}
+																 </div>
+																 {hasCitas ? (
+																	 <div className="text-xs text-red-600 mt-1">
+																		 <div className="font-medium">Reservado</div>
+																		 {slot.citas.map((cita: any) => (
+																			 <div key={cita.id} className="mt-1">
+																				 <div>{cita.servicio?.nombre}</div>
+																				 <div className="text-gray-500">{cita.jardin?.nombre}</div>
+																			 </div>
+																		 ))}
+																	 </div>
+																 ) : (
+																	 <div className="text-xs text-gray-600 mt-1">
+																		 {slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
+																	 </div>
+																 )}
+															 </div>
+														 );
+													 })}
+												 </div>
+											 </div>
+											 );
+										 })}
+									</div>
+								</div>
+							)}
 
 							{/* Lista de Slots Disponibles */}
-							{slots.length > 0 && (
+							{selectedTecnicoId && slots.filter(s => !s.isEmpty).length === 0 && (
 								<div>
 									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
-									<div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
-										{slots.map((slot) => (
-											<div 
-												key={slot.id} 
-												onClick={() => setSelectedSlotId(slot.id)} 
-												className={`p-2 border rounded cursor-pointer ${selectedSlotId === slot.id ? 'border-green-500 bg-green-50' : 'border-gray-300'}`}
-											>
-												{new Date(slot.fecha).toLocaleDateString()} - {slot.hora_inicio} a {slot.hora_fin}
-											</div>
-										))}
+									<div className="border rounded p-4 bg-yellow-50 border-yellow-200">
+										<p className="text-yellow-800 text-center text-sm">
+											No hay horarios disponibles para este jardinero.
+										</p>
+									</div>
+								</div>
+							)}
+							{slots.filter(s => !s.isEmpty).length > 0 && (
+								<div>
+									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
+									<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
+										{slots.filter(s => !s.isEmpty).map((slot) => {
+											const fecha = new Date(slot.fecha);
+											const fechaFormateada = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
+											const horaInicio = new Date(slot.hora_inicio).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+											const horaFin = new Date(slot.hora_fin).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+											const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
+											const hasCitas = slot.citas && slot.citas.length > 0;
+											return (
+												<div
+													key={slot.id}
+													onClick={() => isAvailable && setSelectedSlotId(slot.id)}
+													className={`p-3 border rounded cursor-pointer hover:bg-white transition-colors ${
+														selectedSlotId === slot.id 
+															? 'border-green-500 bg-green-50' 
+															: isAvailable 
+																? 'border-gray-300' 
+																: 'border-red-300 bg-red-50 cursor-not-allowed'
+													}`}
+												>
+													<div className="flex justify-between items-center">
+														<div>
+															<div className="font-medium">{fechaFormateada}</div>
+															<div className="text-sm text-gray-600">{horaInicio} - {horaFin}</div>
+															{hasCitas ? (
+																<div className="text-xs text-red-600 mt-1">
+																	<div className="font-medium">Reservado</div>
+																	{slot.citas.map((cita: any) => (
+																		<div key={cita.id} className="mt-1">
+																			<div>{cita.servicio?.nombre}</div>
+																			<div className="text-gray-500">{cita.jardin?.nombre}</div>
+																		</div>
+																	))}
+																</div>
+															) : (
+																<div className="text-xs text-gray-500 mt-1">
+																	{slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
+																</div>
+															)}
+														</div>
+													</div>
+												</div>
+											);
+										})}
 									</div>
 								</div>
 							)}

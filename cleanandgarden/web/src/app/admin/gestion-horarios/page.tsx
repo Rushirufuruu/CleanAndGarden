@@ -19,6 +19,7 @@ type Slot = {
   hora_fin: string; // ISO DateTime
   cupos_totales?: number;
   cupos_ocupados?: number;
+  citas?: any[]; // Agregado para mostrar citas reservadas
   usuario?: {
     nombre?: string;
     apellido?: string;
@@ -749,42 +750,68 @@ export default function GestionHorarios() {
                     )}
 
                     {savedSlots.length > 0 ? (
-                      savedSlots.map((s, i) => (
-                        <div
-                          key={`s-${i}`}
-                          className="text-xs px-2 py-1 rounded mb-1 flex justify-between items-center"
-                          style={{
-                            backgroundColor: "#F0F8EC",
-                            color: "#2E5430",
-                            border: "1px solid #E3EAD8",
-                          }}
-                        >
-                          <div className="min-w-0">
-                            {formatTime(s.hora_inicio)}–{formatTime(s.hora_fin)} •{" "}
-                            {s.usuario?.nombre} {s.usuario?.apellido ?? "Trabajador"}{" "}
-                            <span className="opacity-70">
-                              {s.usuario?.rol?.codigo ?? ""}
-                            </span>
+                      savedSlots.map((s, i) => {
+                        const hasCitas = s.citas && s.citas.length > 0;
+                        const isFullyBooked = hasCitas && s.citas!.length >= (s.cupos_totales || 1);
+                        return (
+                          <div
+                            key={`s-${i}`}
+                            className={`text-xs px-2 py-1 rounded mb-1 flex justify-between items-center ${
+                              isFullyBooked ? 'border-2 border-red-300 bg-red-50' : ''
+                            }`}
+                            style={{
+                              backgroundColor: isFullyBooked ? "#FEF2F2" : "#F0F8EC",
+                              color: "#2E5430",
+                              border: isFullyBooked ? "2px solid #FCA5A5" : "1px solid #E3EAD8",
+                            }}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium">
+                                {formatTime(s.hora_inicio)}–{formatTime(s.hora_fin)}
+                              </div>
+                              <div className="text-xs opacity-75">
+                                {s.usuario?.nombre} {s.usuario?.apellido ?? "Trabajador"}{" "}
+                                <span className="opacity-70">
+                                  ({s.usuario?.rol?.codigo ?? ""})
+                                </span>
+                              </div>
+                              {hasCitas && s.citas && (
+                                <div className="text-xs text-red-600 mt-1">
+                                  <div className="font-medium">
+                                    {s.citas!.length}/{s.cupos_totales || 1} cupos ocupados
+                                  </div>
+                                  {s.citas!.slice(0, 2).map((cita: any) => (
+                                    <div key={cita.id} className="truncate">
+                                      • {cita.servicio?.nombre} - {cita.jardin?.nombre}
+                                    </div>
+                                  ))}
+                                  {s.citas!.length > 2 && (
+                                    <div className="text-xs opacity-75">
+                                      +{s.citas!.length - 2} más...
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-1 shrink-0 ml-2">
+                              <button
+                                onClick={() => editarSlot(s)}
+                                className="text-[10px] px-2 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300"
+                                title="Editar horario"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => eliminarSlot(s.id!)}
+                                className="text-[10px] px-2 py-0.5 rounded bg-red-200 hover:bg-red-300"
+                                title="Eliminar slot"
+                              >
+                                🗑️
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button
-                              onClick={() => editarSlot(s)}
-                              className="text-[10px] px-2 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300"
-                              title="Editar cupos"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              onClick={() => eliminarSlot(s.id!)}
-                              className="text-[10px] px-2 py-0.5 rounded bg-red-200 hover:bg-red-300"
-                              title="Eliminar slot"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </div>
-
-                      ))
+                        );
+                      })
                     ) : previewSlots.length === 0 ? (
                       <p className="text-xs italic opacity-60">Sin horarios</p>
                     ) : null}
