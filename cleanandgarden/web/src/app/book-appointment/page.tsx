@@ -83,6 +83,16 @@ export default function BookAppointmentPage() {
 		const [editSelectedDireccionId, setEditSelectedDireccionId] = useState<number | null>(null)
 		const [savingEdit, setSavingEdit] = useState(false)
 
+		// agendamiento
+		const [servicios, setServicios] = useState<Array<any>>([])
+		const [tecnicos, setTecnicos] = useState<Array<any>>([])
+		const [selectedServicioId, setSelectedServicioId] = useState<number | null>(null)
+		const [selectedTecnicoId, setSelectedTecnicoId] = useState<number | null>(null)
+		const [selectedMes, setSelectedMes] = useState<string>("")
+		const [slots, setSlots] = useState<Array<any>>([])
+		const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null)
+		const [reservando, setReservando] = useState(false)
+
 		// edit controls
 		const [isEditing, setIsEditing] = useState(false)
 		const [savingProfile, setSavingProfile] = useState(false)
@@ -142,6 +152,29 @@ export default function BookAppointmentPage() {
 							}
 						} catch (err) {
 							console.debug('load regiones failed', err)
+						}
+
+						// cargar servicios
+						try {
+							const sRes = await fetch(`${API}/servicios`)
+							if (sRes.ok) {
+								const sBody = await sRes.json()
+								setServicios(Array.isArray(sBody) ? sBody : [])
+							}
+						} catch (err) {
+							console.debug('load servicios failed', err)
+						}
+
+						// cargar jardineros
+						try {
+							const tRes = await fetch(`${API}/usuarios/buscar?rol=jardinero`, { credentials: 'include' })
+							if (tRes.ok) {
+								const tBody = await tRes.json()
+								const jards = Array.isArray(tBody) ? tBody : []
+								setTecnicos(jards)
+							}
+						} catch (err) {
+							console.debug('load jardineros failed', err)
 						}
 					}
 				} catch (err) {
@@ -267,6 +300,18 @@ export default function BookAppointmentPage() {
 		}
 	}
 
+		// cargar slots cuando cambie técnico o mes
+		useEffect(() => {
+			if (selectedTecnicoId && selectedMes) {
+				fetch(`${API}/disponibilidad-mensual?usuarioId=${selectedTecnicoId}&mes=${selectedMes}`)
+					.then(res => res.json())
+					.then(data => setSlots(Array.isArray(data?.data) ? data.data.filter((s: any) => (s.cupos_ocupados ?? 0) < (s.cupos_totales ?? 1)) : []))
+					.catch(err => console.debug('load slots failed', err))
+			} else {
+				setSlots([])
+			}
+		}, [selectedTecnicoId, selectedMes])
+
 	// Crear un jardín inline
 	async function createGarden() {
 		if (!newGardenName || newGardenName.trim().length === 0) {
@@ -330,7 +375,44 @@ export default function BookAppointmentPage() {
 		} finally {
 			setSavingGarden(false)
 		}
-	}	// Página con solo el formulario de perfil prefijado
+	}
+
+	// Reservar cita
+	async function reservarCita() {
+		if (!selectedGardenId || !selectedServicioId || !selectedSlotId || !clienteId) {
+			setError('Faltan datos para reservar la cita')
+			return
+		}
+		setReservando(true)
+		try {
+			const res = await fetch(`${API}/cita/reservar`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					disponibilidad_mensual_id: selectedSlotId,
+					cliente_id: clienteId,
+					jardin_id: selectedGardenId,
+					servicio_id: selectedServicioId
+				})
+			})
+			if (!res.ok) throw new Error('No se pudo reservar la cita')
+			const body = await res.json()
+			alert('Cita reservada exitosamente!')
+			// resetear selecciones
+			setSelectedServicioId(null)
+			setSelectedTecnicoId(null)
+			setSelectedMes('')
+			setSlots([])
+			setSelectedSlotId(null)
+		} catch (err: any) {
+			console.error(err)
+			setError(err?.message ?? 'Error reservando cita')
+		} finally {
+			setReservando(false)
+		}
+	}
+
+	// Página con solo el formulario de perfil prefijado
 	if (loading) {
 		return (
 			<div className="min-h-screen bg-[#fefaf2] py-8 px-4 flex items-center justify-center">
@@ -555,6 +637,109 @@ export default function BookAppointmentPage() {
 									</div>
 								</div>
 							)}
+					</section>
+
+					{/* Sección de Agendamiento */}
+					<section className="mb-6">
+						<h2 className="text-lg font-semibold mb-3">Agendar Cita</h2>
+						<p className="mb-3">Selecciona el servicio, técnico, fecha y hora para tu cita</p>
+
+						<div className="space-y-4">
+							{/* Seleccionar Servicio */}
+							<div>
+								<label className="block text-sm font-medium mb-1">Servicio *</label>
+								<select 
+									value={selectedServicioId ?? ''} 
+									onChange={(e) => {
+										const id = e.target.value ? Number(e.target.value) : null
+										setSelectedServicioId(id)
+										setSelectedTecnicoId(null)
+										setSelectedMes('')
+										setSlots([])
+										setSelectedSlotId(null)
+									}} 
+									className="w-full rounded border px-3 py-2"
+								>
+									<option value="">Selecciona un servicio</option>
+									{servicios.map((serv) => (
+										<option key={serv.id} value={serv.id}>{serv.title} - ${serv.precio}</option>
+									))}
+								</select>
+							</div>
+
+							{/* Seleccionar Jardinero */}
+							<div>
+								<label className="block text-sm font-medium mb-1">Jardinero *</label>
+								<select 
+									value={selectedTecnicoId ?? ''} 
+									onChange={(e) => {
+										const id = e.target.value ? Number(e.target.value) : null
+										setSelectedTecnicoId(id)
+										setSelectedMes('')
+										setSlots([])
+										setSelectedSlotId(null)
+									}} 
+									className="w-full rounded border px-3 py-2" 
+									disabled={!selectedServicioId}
+								>
+									<option value="">Selecciona un jardinero</option>
+									{tecnicos.map((tec) => (
+										<option key={tec.id} value={tec.id}>{tec.nombre} {tec.apellido}</option>
+									))}
+								</select>
+							</div>
+
+							{/* Seleccionar Mes */}
+							<div>
+								<label className="block text-sm font-medium mb-1">Mes *</label>
+								<select 
+									value={selectedMes} 
+									onChange={(e) => {
+										setSelectedMes(e.target.value)
+										setSlots([])
+										setSelectedSlotId(null)
+									}} 
+									className="w-full rounded border px-3 py-2" 
+									disabled={!selectedTecnicoId}
+								>
+									<option value="">Selecciona un mes</option>
+									<option value="2024-12">Diciembre 2024</option>
+									<option value="2025-01">Enero 2025</option>
+									<option value="2025-02">Febrero 2025</option>
+									<option value="2025-03">Marzo 2025</option>
+								</select>
+							</div>
+
+							{/* Lista de Slots Disponibles */}
+							{slots.length > 0 && (
+								<div>
+									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
+									<div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
+										{slots.map((slot) => (
+											<div 
+												key={slot.id} 
+												onClick={() => setSelectedSlotId(slot.id)} 
+												className={`p-2 border rounded cursor-pointer ${selectedSlotId === slot.id ? 'border-green-500 bg-green-50' : 'border-gray-300'}`}
+											>
+												{new Date(slot.fecha).toLocaleDateString()} - {slot.hora_inicio} a {slot.hora_fin}
+											</div>
+										))}
+									</div>
+								</div>
+							)}
+
+							{/* Botón Reservar */}
+							{selectedSlotId && (
+								<button 
+									type="button" 
+									onClick={reservarCita} 
+									disabled={reservando} 
+									className="w-full rounded bg-[#2E5430] px-4 py-3 text-white font-semibold disabled:opacity-50"
+								>
+									{reservando ? 'Reservando...' : 'Reservar Cita'}
+								</button>
+							)}
+						</div>
 					</section>
 
 				</div>
