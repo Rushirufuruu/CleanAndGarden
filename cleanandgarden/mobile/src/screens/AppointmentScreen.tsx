@@ -11,7 +11,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 
-export default function AppointmentScreen() {
+// ✅ URL de tu backend Railway
+const API_URL = "https://believable-victory-production.up.railway.app";
+
+export default function AppointmentScreen({ route }: any) {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -20,49 +23,74 @@ export default function AppointmentScreen() {
       try {
         setLoading(true);
 
-        //Obtener usuario autenticado
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userEmail = userData?.user?.email;
-
-        if (!userEmail) {
-          Alert.alert("Error", "No se encontró el usuario autenticado.");
+        // Obtener email del usuario autenticado
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        
+        if (userError || !user || !user.email) {
+          console.error("❌ Error al obtener usuario:", userError);
+          Alert.alert("Error", "No se pudo obtener la sesión. Por favor, inicia sesión nuevamente.");
           return;
         }
 
-        //Buscar el ID del usuario en la tabla "usuario"
-        const { data: usuario, error: usuarioError } = await supabase
-          .from("usuario")
-          .select("id")
-          .eq("email", userEmail)
-          .single();
+        const email = user.email;
+        console.log(`🔄 Fetching appointments for: ${email}`);
+        
+        // Add timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
-        if (usuarioError) throw usuarioError;
+        // Usar el endpoint público con el email del usuario
+        const url = `${API_URL}/citas/${encodeURIComponent(email)}`;
+        console.log(`📡 Requesting: ${url}`);
 
-        //Obtener las citas del cliente autenticado
-        const { data, error } = await supabase
-          .from("cita")
-          .select(`
-            id,
-            fecha_hora,
-            estado,
-            precio_aplicado,
-            notas_cliente,
-            nombre_servicio_snapshot,
-            servicio (
-              nombre,
-              precio_clp
-            )
-          `)
-          .eq("cliente_id", usuario.id)
-          .order("fecha_hora", { ascending: true });
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        });
 
-        if (error) throw error;
+        clearTimeout(timeoutId);
+        
+        console.log(`📡 Response status: ${response.status}`);
+        console.log(`📡 Response Content-Type: ${response.headers.get('content-type')}`);
 
-        setAppointments(data || []);
+        // Check if response is actually JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const textResponse = await response.text();
+          console.error("❌ Response is not JSON:", textResponse.substring(0, 300));
+          throw new Error(
+            `El servidor no está respondiendo correctamente.\n\n` +
+            `Por favor, verifica que el backend esté desplegado en Railway.\n\n` +
+            `Status: ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+        console.log(`✅ Data received: ${data.length} citas`);
+
+        if (!response.ok) {
+          throw new Error(data.error || `Error del servidor: ${response.status}`);
+        }
+
+        setAppointments(data);
       } catch (err: any) {
-        console.error("Error al cargar citas:", err.message);
-        Alert.alert("Error", err.message || "No se pudieron cargar las citas.");
+        console.error("❌ Error al cargar citas:", err);
+        
+        let errorMessage = "No se pudieron cargar las citas.";
+        
+        if (err.name === 'AbortError') {
+          errorMessage = "La solicitud tardó demasiado tiempo. Verifica tu conexión a internet.";
+        } else if (err.message && err.message.includes('Network request failed')) {
+          errorMessage = "Error de red. Verifica que estés conectado a internet.";
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+        
+        Alert.alert("Error al cargar citas", errorMessage);
       } finally {
         setLoading(false);
       }
@@ -73,7 +101,9 @@ export default function AppointmentScreen() {
 
   const renderAppointment = ({ item }: any) => {
     const nombreServicio =
-      item.nombre_servicio_snapshot || item.servicio?.nombre || "Servicio";
+      item.nombre_servicio_snapshot ||
+      item.servicio?.nombre ||
+      "Servicio";
     const precio = item.precio_aplicado || item.servicio?.precio_clp || null;
     const fecha = new Date(item.fecha_hora);
     const fechaLocal = fecha.toLocaleDateString("es-CL");
@@ -120,7 +150,6 @@ export default function AppointmentScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
-        {/* Encabezado */}
         <View style={styles.header}>
           <Text style={styles.title}>Tus horas agendadas</Text>
           <Text style={styles.subtitle}>
@@ -128,7 +157,6 @@ export default function AppointmentScreen() {
           </Text>
         </View>
 
-        {/* Contenido */}
         {loading ? (
           <ActivityIndicator color="#2E5430" size="large" style={{ marginTop: 50 }} />
         ) : appointments.length === 0 ? (
@@ -154,7 +182,7 @@ export default function AppointmentScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fefaf2", // mismo color del fondo
+    backgroundColor: "#fefaf2",
   },
   container: {
     flex: 1,

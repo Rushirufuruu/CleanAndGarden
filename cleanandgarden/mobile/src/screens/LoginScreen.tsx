@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -14,50 +14,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 
+//URL de tu backend Railway
+const API_URL = "https://believable-victory-production.up.railway.app";
+
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  //Detectar sesión activa
-  useEffect(() => {
-    const checkSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        console.log("Usuario ya autenticado:", session.user.email);
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Tabs" }], //Redirigir a Tabs
-        });
-      }
-    };
-
-    checkSession();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session && event === "SIGNED_IN") {
-          console.log("Inicio de sesión detectado:", session.user.email);
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "Tabs" }], //Redirigir a Tabs
-          });
-        } else if (event === "SIGNED_OUT") {
-          console.log("Sesión cerrada");
-        }
-      }
-    );
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
-  //Iniciar sesión manualmente
   const handleLogin = async () => {
     if (!email.trim()) {
       Alert.alert("Error", "Ingresa un correo electrónico válido");
@@ -71,20 +36,58 @@ export default function LoginScreen({ navigation }: any) {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // 1. Iniciar sesión en Supabase primero
+      console.log("🔐 Iniciando sesión en Supabase...");
+      const { data: supabaseData, error: supabaseError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
       });
 
-      if (error) throw error;
+      if (supabaseError) {
+        console.error("❌ Error en Supabase:", supabaseError);
+        throw new Error(supabaseError.message || "Error al autenticar con Supabase");
+      }
 
-      Alert.alert("✅ Éxito", "Inicio de sesión exitoso");
+      console.log("✅ Sesión de Supabase iniciada:", supabaseData.user?.email);
+
+      // 2. Llamar al backend de Railway para validación adicional
+      console.log("🔐 Validando con backend Railway...");
+      const response = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Si el backend falla pero Supabase funcionó, continuamos
+        console.warn("⚠️ Backend validation warning:", data.error);
+      }
+
+      // Si el backend devuelve redirectTo, mostramos advertencia
+      if (data.redirectTo === "profile") {
+        Alert.alert(
+          "Atención",
+          data.warning || "Completa tu perfil antes de continuar."
+        );
+      } else {
+        Alert.alert("✅ Éxito", "Inicio de sesión exitoso");
+      }
+
+      console.log("✅ Usuario autenticado:", supabaseData.user?.email);
+
+      // Redirigir al Home/Tabs
       navigation.reset({
         index: 0,
-        routes: [{ name: "Tabs" }], //Redirigir a Tabs también
+        routes: [{ name: "Tabs" }],
       });
     } catch (error: any) {
-      Alert.alert("❌ Error", error.message || "No se pudo iniciar sesión");
+      console.error("❌ Error en login:", error);
+      Alert.alert("Error", error.message || "No se pudo iniciar sesión");
     } finally {
       setLoading(false);
     }
@@ -145,17 +148,7 @@ export default function LoginScreen({ navigation }: any) {
             </View>
           </View>
 
-          {/* Forgot Password */}
-          <TouchableOpacity
-            onPress={() => Alert.alert("Función próximamente")}
-            style={styles.forgotPassword}
-          >
-            <Text style={styles.forgotPasswordText}>
-              ¿Olvidaste tu contraseña?
-            </Text>
-          </TouchableOpacity>
-
-          {/* Login Button */}
+          {/* Botón Ingresar */}
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleLogin}
@@ -168,7 +161,7 @@ export default function LoginScreen({ navigation }: any) {
             )}
           </TouchableOpacity>
 
-          {/* Register Link */}
+          {/* Registro */}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>¿No tienes una cuenta? </Text>
             <TouchableOpacity
@@ -184,15 +177,8 @@ export default function LoginScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fefaf2",
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: "center",
-    padding: 20,
-  },
+  container: { flex: 1, backgroundColor: "#fefaf2" },
+  scrollContainer: { flexGrow: 1, justifyContent: "center", padding: 20 },
   formContainer: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -217,9 +203,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 24,
   },
-  inputContainer: {
-    marginBottom: 16,
-  },
+  inputContainer: { marginBottom: 16 },
   label: {
     fontSize: 14,
     fontWeight: "500",
@@ -242,22 +226,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#fff",
   },
-  passwordInput: {
-    flex: 1,
-    padding: 12,
-    fontSize: 16,
-  },
-  eyeButton: {
-    padding: 12,
-  },
-  forgotPassword: {
-    alignSelf: "flex-end",
-    marginBottom: 20,
-  },
-  forgotPasswordText: {
-    color: "#2E5430",
-    fontSize: 14,
-  },
+  passwordInput: { flex: 1, padding: 12, fontSize: 16 },
+  eyeButton: { padding: 12 },
   button: {
     backgroundColor: "#2E5430",
     borderRadius: 8,
@@ -265,26 +235,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
   },
-  registerText: {
-    color: "#6B7280",
-    fontSize: 14,
-  },
-  registerLink: {
-    color: "#2E5430",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  registerText: { color: "#6B7280", fontSize: 14 },
+  registerLink: { color: "#2E5430", fontSize: 14, fontWeight: "600" },
 });

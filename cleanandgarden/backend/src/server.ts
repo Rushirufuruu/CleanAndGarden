@@ -35,7 +35,7 @@ declare global {
 const app = express();
 
 // ==========================================
-// CONFIGURACIÓN CORS (Railway + Vercel + Local)
+// CONFIGURACIÓN CORS (Railway + Vercel + Local + Mobile)
 // ==========================================
 const allowedOrigins = [
   "http://localhost:3000",
@@ -46,6 +46,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Mobile apps (React Native/Expo) often don't send an origin header
       if (!origin) return callback(null, true);
 
       // Permite localhost, Expo y cualquier dominio *.vercel.app
@@ -3795,5 +3796,120 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
   }
 });
 
+// ==========================================
+// OBTENER CITAS POR EMAIL DEL CLIENTE
+// ==========================================
+app.get("/citas/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un correo electrónico" });
+    }
+
+    // Buscar usuario por correo
+    const usuario = await prisma.usuario.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(usuario.id) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /citas/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER CITAS DEL USUARIO AUTENTICADO (ALTERNATIVO)
+// ==========================================
+app.get("/api/mis-citas", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+
+    console.log("📋 Buscando citas para usuario ID:", userId);
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(userId) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    console.log(`✅ Encontradas ${citas.length} citas`);
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /api/mis-citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
 
 
