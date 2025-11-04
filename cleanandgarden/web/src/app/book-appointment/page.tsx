@@ -347,64 +347,50 @@ export default function BookAppointmentPage() {
 					.then(res => res.json())
 					.then(data => {
 						const allSlots = Array.isArray(data?.data) ? data.data : [];
-						// Filtrar slots válidos: solo fechas futuras y con cupos disponibles
-						const now = new Date();
-						const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-						const currentTime = now.getTime();
-
-						const validSlots = allSlots.filter((slot: any) => {
-							const slotDate = new Date(slot.fecha);
-							const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
-							const slotStartTime = new Date(slot.hora_inicio).getTime();
-
-							// Verificar que tenga cupos disponibles
-							const hasAvailableSpots = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
-
-							// Verificar fecha futura o hoy con hora futura
-							const isFutureDate = slotDateOnly > today;
-							const isTodayWithFutureTime = slotDateOnly.getTime() === today.getTime() &&
-								slotStartTime > (currentTime + 30 * 60 * 1000); // 30 minutos de margen
-
-							return hasAvailableSpots && (isFutureDate || isTodayWithFutureTime);
-						});
+						// Mostrar TODOS los slots del API (no filtrar por cupos disponibles)
+						// La lógica de disponibilidad se maneja a nivel de slot individual
+						const apiSlots = allSlots;
 
 						console.log('All slots from API:', allSlots.length);
-						console.log('Valid slots after filtering:', validSlots.length);
 
-						// Crear un calendario completo con los próximos 30 días FUTUROS
+						// Crear un calendario completo PERO solo para días que tengan slots del API
 						const calendarSlots: any[] = [];
-						const futureDays: Date[] = [];
 
-						// Generar lista de próximos 30 días futuros
-						for (let i = 1; i <= 30; i++) {
-							const futureDate = new Date(today);
-							futureDate.setDate(today.getDate() + i);
-							futureDays.push(new Date(futureDate));
-						}
+						// Primero, identificar qué días tienen slots del API (independientemente de disponibilidad)
+						const daysWithSlots = new Set<string>();
+						apiSlots.forEach((slot: any) => {
+							// Usar la hora de inicio del slot si está disponible para evitar
+							// desplazamientos por zona horaria cuando `fecha` viene a medianoche UTC.
+							const fecha = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
+							const dateKey = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
+							daysWithSlots.add(dateKey);
+						});
 
-						// Agregar slots existentes que pasaron el filtro
-						validSlots.forEach((slot: any) => {
+						// Agregar TODOS los slots del API
+						apiSlots.forEach((slot: any) => {
 							calendarSlots.push(slot);
 						});
 
-						// Agregar días vacíos SOLO para fechas futuras que no tienen slots
-						futureDays.forEach(futureDate => {
-							const dateKey = `${futureDate.getDate().toString().padStart(2, '0')}/${(futureDate.getMonth() + 1).toString().padStart(2, '0')}/${futureDate.getFullYear()}`;
+						// Agregar días vacíos SOLO para fechas que tienen al menos un slot del API
+						daysWithSlots.forEach(dateKey => {
+							const [day, month, year] = dateKey.split('/').map(Number);
+							const slotDate = new Date(year, month - 1, day);
 
-							// Verificar si ya existe un slot válido para este día
-							const hasSlotForDay = validSlots.some((slot: any) => {
-								const slotDate = new Date(slot.fecha);
-								const slotDateKey = `${slotDate.getDate().toString().padStart(2, '0')}/${(slotDate.getMonth() + 1).toString().padStart(2, '0')}/${slotDate.getFullYear()}`;
+							// Verificar si ya existe al menos un slot para este día
+							const existingSlotsForDay = apiSlots.filter((slot: any) => {
+								const slotDateCheck = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
+								const slotDateKey = `${slotDateCheck.getDate().toString().padStart(2, '0')}/${(slotDateCheck.getMonth() + 1).toString().padStart(2, '0')}/${slotDateCheck.getFullYear()}`;
 								return slotDateKey === dateKey;
 							});
 
-							if (!hasSlotForDay) {
-								// Crear un slot "vacío" para este día futuro
+							// Si el día tiene menos slots de los esperados, agregar slots vacíos
+							// Por ahora, simplificar: solo agregar un slot vacío si no hay ninguno
+							if (existingSlotsForDay.length === 0) {
 								calendarSlots.push({
 									id: `empty-${dateKey}`,
-									fecha: futureDate.toISOString().split('T')[0],
-									hora_inicio: `${futureDate.toISOString().split('T')[0]}T12:00:00.000Z`,
-									hora_fin: `${futureDate.toISOString().split('T')[0]}T13:00:00.000Z`,
+									fecha: slotDate.toISOString().split('T')[0],
+									hora_inicio: `${slotDate.toISOString().split('T')[0]}T12:00:00.000Z`,
+									hora_fin: `${slotDate.toISOString().split('T')[0]}T13:00:00.000Z`,
 									cupos_totales: 0,
 									cupos_ocupados: 0,
 									isEmpty: true,
@@ -511,9 +497,10 @@ export default function BookAppointmentPage() {
 		// Validar fecha y hora del slot
 		const now = new Date()
 		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-		const slotDate = new Date(selectedSlot.fecha)
-		const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate())
-		const slotStartTime = new Date(selectedSlot.hora_inicio).getTime()
+	// Para validaciones usar la hora de inicio (con hora) para evitar desplazamientos UTC
+	const slotDate = selectedSlot.hora_inicio ? new Date(selectedSlot.hora_inicio) : new Date(selectedSlot.fecha)
+	const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate())
+	const slotStartTime = new Date(selectedSlot.hora_inicio ?? selectedSlot.hora_inicio).getTime()
 
 		const isFutureDate = slotDateOnly > today
 		const isTodayWithFutureTime = slotDateOnly.getTime() === today.getTime() &&
@@ -852,7 +839,8 @@ export default function BookAppointmentPage() {
 										<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 										 {Object.entries(
 											 slots.reduce((acc: Record<string, any[]>, slot: any) => {
-												 const fecha = new Date(slot.fecha);
+												 // Usar hora de inicio si está disponible para calcular el día local
+												 const fecha = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
 												 const diaKey = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
 												 if (!acc[diaKey]) acc[diaKey] = []
 												 acc[diaKey].push(slot)
@@ -945,8 +933,8 @@ export default function BookAppointmentPage() {
 										</div>
 									) : slots.filter(s => !s.isEmpty).length > 0 ? (
 										<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
-										{slots.filter(s => !s.isEmpty).map((slot) => {
-											const fecha = new Date(slot.fecha);
+											{slots.filter(s => !s.isEmpty).map((slot) => {
+											const fecha = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
 											const fechaFormateada = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
 											const horaInicio = new Date(slot.hora_inicio).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 											const horaFin = new Date(slot.hora_fin).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
