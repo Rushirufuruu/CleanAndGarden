@@ -13,10 +13,56 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
+import { supabase } from "../lib/supabase";
+
+const API_URL = "https://believable-victory-production.up.railway.app";
 
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState<string>("Usuario");
+
+  // Obtener información del usuario autenticado
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error || !user) {
+          console.error("❌ Error al obtener usuario:", error);
+          return;
+        }
+
+        const email = user.email;
+        console.log("✅ Usuario autenticado:", email);
+
+        if (!email) {
+          return;
+        }
+
+        // Buscar información adicional del usuario en el backend usando el email
+        const response = await fetch(`${API_URL}/usuario/info/email/${encodeURIComponent(email)}`);
+        
+        if (response.ok) {
+          const userData = await response.json();
+          if (userData.nombre) {
+            setUserName(userData.nombre);
+            console.log("✅ Nombre del usuario:", userData.nombre);
+          }
+        } else {
+          console.log("⚠️ No se pudo obtener info del backend, usando email");
+          // Si no hay endpoint, usar el email como nombre
+          const nombre = email.split('@')[0];
+          setUserName(nombre.charAt(0).toUpperCase() + nombre.slice(1));
+        }
+      } catch (err) {
+        console.error("Error al obtener info del usuario:", err);
+        // Fallback: usar "Usuario"
+      }
+    };
+
+    fetchUserInfo();
+  }, []);
 
   useEffect(() => {
     const fetchServicios = async () => {
@@ -46,21 +92,27 @@ export default function HomeScreen({ navigation }: any) {
       <View style={styles.container}>
         <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
           {/* HEADER */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
-            <Text style={styles.subtitle}>
-              Cuida tus espacios verdes con nuestros servicios profesionales.
-            </Text>
-          </View>
+          <View style={styles.headerContainer}>
+            <View style={styles.headerTop}>
+              <View>
+                <Text style={styles.greeting}>Hola, {userName}</Text>
+                <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
+              </View>
 
-          {/* BOTÓN DE PERFIL */}
-          <View style={styles.headerButtons}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
-            >
-              <Ionicons name="person-circle-outline" size={30} color="#2E5430" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.profileButton}
+                onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
+              >
+                <Ionicons name="person-circle-outline" size={42} color="#2E5430" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.headerBottom}>
+              <Ionicons name="leaf-outline" size={18} color="#2E5430" />
+              <Text style={styles.subtitle}>
+                Cuidamos tus espacios verdes con dedicación y profesionalismo.
+              </Text>
+            </View>
           </View>
 
           {/* SERVICIOS */}
@@ -235,4 +287,40 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
+  headerContainer: {
+  backgroundColor: "#fefaf2",
+  paddingTop: 30,
+  paddingHorizontal: 20,
+  paddingBottom: 10,
+},
+
+headerTop: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+},
+
+greeting: {
+  fontSize: 18,
+  fontWeight: "500",
+  color: "#374151",
+  marginBottom: 2,
+},
+
+profileButton: {
+  backgroundColor: "#fff",
+  borderRadius: 50,
+  padding: 4,
+  shadowColor: "#000",
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 3,
+},
+
+headerBottom: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 10,
+},
+
 });

@@ -3860,6 +3860,86 @@ app.get("/citas/:email", async (req, res) => {
 });
 
 // ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR SUPABASE AUTH_ID
+// ==========================================
+app.get("/usuario/:userId/info", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: "Debe proporcionar un ID de usuario" });
+    }
+
+    console.log(`👤 Buscando info para usuario ID (Supabase): ${userId}`);
+
+    // Como no existe auth_id, buscar por email que viene en el parámetro
+    // O mejor aún, usar el endpoint con email directamente
+    return res.status(400).json({ 
+      error: "Use el endpoint /usuario/info/email/:email en su lugar" 
+    });
+  } catch (error) {
+    console.error("❌ Error en /usuario/:userId/info:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR EMAIL
+// ==========================================
+app.get("/usuario/info/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un email" });
+    }
+
+    console.log(`👤 Buscando info para usuario email: ${email}`);
+
+    // Buscar usuario por email
+    const usuario = await prisma.usuario.findUnique({
+      where: { email: decodeURIComponent(email) },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        telefono: true,
+        rol: {
+          select: {
+            nombre: true,
+            codigo: true,
+          },
+        },
+      },
+    });
+
+    if (!usuario) {
+      console.log(`❌ Usuario no encontrado con email: ${email}`);
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    console.log(`✅ Usuario encontrado: ${usuario.nombre} ${usuario.apellido}`);
+
+    // Formatear respuesta
+    const userInfo = {
+      id: Number(usuario.id),
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email,
+      telefono: usuario.telefono,
+      rol: usuario.rol ? usuario.rol.nombre : null,
+      rolCodigo: usuario.rol ? usuario.rol.codigo : null,
+    };
+
+    res.json(userInfo);
+  } catch (error) {
+    console.error("❌ Error en /usuario/info/email/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
 // OBTENER CITAS DEL USUARIO AUTENTICADO (ALTERNATIVO)
 // ==========================================
 app.get("/api/mis-citas", authMiddleware, async (req: Request, res: Response) => {
