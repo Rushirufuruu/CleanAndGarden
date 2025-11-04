@@ -3006,12 +3006,14 @@ app.get("/disponibilidad-mensual", async (req, res) => {
       rangoDesde = toPgDateLocal(desde as string);
       rangoHasta = toPgDateLocal(hasta as string);
     } else {
+      // Solo mostrar fechas futuras, no los próximos 3 meses
       const now = new Date();
-      const firstLocal = new Date(now.getFullYear(), now.getMonth(), 1);
-      // Mostrar los próximos 3 meses en lugar de solo el mes actual
-      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 3, 0);
-      rangoDesde = toPgDateLocal(firstLocal);
-      rangoHasta = toPgDateLocal(lastLocal);
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      rangoDesde = toPgDateLocal(today);
+      // Mostrar los próximos 30 días
+      const futureDate = new Date(today);
+      futureDate.setDate(today.getDate() + 30);
+      rangoHasta = toPgDateLocal(futureDate);
     }
 
     const filtro: any = {
@@ -3020,6 +3022,7 @@ app.get("/disponibilidad-mensual", async (req, res) => {
     };
     if (usuarioId) filtro.tecnico_id = BigInt(String(usuarioId));
 
+    // 🔹 Obtener slots activos
     const disponibilidad = await prisma.disponibilidad_mensual.findMany({
       where: filtro,
       orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
@@ -3034,34 +3037,164 @@ app.get("/disponibilidad-mensual", async (req, res) => {
       console.log(`PUBLIC - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
     });
 
-    // Para cada slot, obtener las citas asociadas con detalles
-    const disponibilidadConCitas = await Promise.all(
-      disponibilidad.map(async (slot) => {
-        const citas = await prisma.cita.findMany({
-          where: {
+    // 🔹 OPTIMIZACIÓN: Obtener TODAS las citas de una vez en lugar de consultas individuales
+    const citasMap = new Map();
+    if (disponibilidad.length > 0) {
+      const tecnicoIds = [...new Set(disponibilidad.map(slot => slot.tecnico_id))];
+      const fechasSlots = disponibilidad.map(slot => ({
+        tecnico_id: slot.tecnico_id,
+        hora_inicio: slot.hora_inicio,
+        hora_fin: slot.hora_fin
+      }));
+
+      // Una sola consulta para obtener todas las citas relevantes
+      const todasLasCitas = await prisma.cita.findMany({
+        where: {
+          tecnico_id: { in: tecnicoIds },
+          OR: fechasSlots.map(slot => ({
             tecnico_id: slot.tecnico_id,
             fecha_hora: {
               gte: slot.hora_inicio,
               lt: slot.hora_fin
+            }
+          })),
+          estado: { in: ['pendiente', 'confirmada'] }
+        },
+        include: {
+          jardin: { select: { id: true, nombre: true } },
+          servicio: { select: { id: true, nombre: true, precio_clp: true } },
+          usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
+        },
+        orderBy: { fecha_creacion: 'asc' }
+      });
+
+      // Organizar citas por slot (clave más simple: tecnico_id + fecha_hora)
+      todasLasCitas.forEach(cita => {
+        const key = `${cita.tecnico_id}-${cita.fecha_hora.toISOString()}`;
+        if (!citasMap.has(key)) {
+          citasMap.set(key, []);
+        }
+        citasMap.get(key).push(cita);
+      });
+    }
+
+    // 🔹 OPTIMIZACIÓN: Obtener TODAS las excepciones de una vez
+    const excepcionesMap = new Map();
+    if (disponibilidad.length > 0) {
+      const tecnicoIds = [...new Set(disponibilidad.map(slot => slot.tecnico_id))];
+
+      const todasLasExcepciones = await prisma.disponibilidad_excepcion.findMany({
+        where: {
+          OR: [
+            // Excepciones específicas por fecha y técnico global
+            {
+              fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+              tecnico_id: null
             },
-            estado: { in: ['pendiente', 'confirmada'] }
-          },
-          include: {
-            jardin: { select: { id: true, nombre: true } },
-            servicio: { select: { id: true, nombre: true, precio_clp: true } },
-            usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
-          },
-          orderBy: { fecha_creacion: 'asc' }
-        });
+            // Excepciones específicas por fecha y técnicos específicos
+            {
+              fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+              tecnico_id: { in: tecnicoIds }
+            },
+            // Excepciones por rango y técnico global
+            {
+              desde: { lte: new Date(rangoHasta) },
+              hasta: { gte: new Date(rangoDesde) },
+              tecnico_id: null
+            },
+            // Excepciones por rango y técnicos específicos
+            {
+              desde: { lte: new Date(rangoHasta) },
+              hasta: { gte: new Date(rangoDesde) },
+              tecnico_id: { in: tecnicoIds }
+            }
+          ]
+        }
+      });
 
-        return {
-          ...slot,
-          citas: citas
-        };
-      })
-    );
+      // Organizar excepciones por slot de manera más simple
+      todasLasExcepciones.forEach((exc: any) => {
+        // Crear clave basada en técnico y fecha/rango
+        let key: string;
+        if (exc.fecha) {
+          key = `${exc.tecnico_id || 'global'}-fecha-${exc.fecha.toISOString().split('T')[0]}`;
+        } else if (exc.desde && exc.hasta) {
+          key = `${exc.tecnico_id || 'global'}-rango-${exc.desde.toISOString().split('T')[0]}-${exc.hasta.toISOString().split('T')[0]}`;
+        } else {
+          return; // Skip excepciones malformadas
+        }
 
-    // No incluimos excepciones aquí (frontend necesita slots con información de citas)
+        if (!excepcionesMap.has(key)) {
+          excepcionesMap.set(key, []);
+        }
+        excepcionesMap.get(key).push(exc);
+      });
+    }
+
+    // 🔹 Filtrar slots considerando excepciones (sin consultas adicionales)
+    const slotsFiltrados = disponibilidad.filter(slot => {
+      const fechaSlotStr = slot.fecha.toISOString().split('T')[0];
+      let tieneExcepcionBloqueante = false;
+
+      // Verificar excepciones específicas por fecha
+      const keyFechaGlobal = `null-fecha-${fechaSlotStr}`;
+      const keyFechaTecnico = `${slot.tecnico_id}-fecha-${fechaSlotStr}`;
+
+      if (excepcionesMap.has(keyFechaGlobal)) {
+        const excepciones = excepcionesMap.get(keyFechaGlobal);
+        if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+          tieneExcepcionBloqueante = true;
+        }
+      }
+
+      if (excepcionesMap.has(keyFechaTecnico)) {
+        const excepciones = excepcionesMap.get(keyFechaTecnico);
+        if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+          tieneExcepcionBloqueante = true;
+        }
+      }
+
+      // Verificar excepciones por rango
+      excepcionesMap.forEach((excepciones, key) => {
+        if (key.includes('-rango-')) {
+          const parts = key.split('-rango-');
+          const tecnicoPart = parts[0];
+          const rangoPart = parts[1];
+
+          // Verificar si esta excepción aplica a este técnico
+          const aplicaATecnico = tecnicoPart === 'null' || tecnicoPart === slot.tecnico_id.toString();
+
+          if (aplicaATecnico) {
+            const [desdeStr, hastaStr] = rangoPart.split('-');
+            const desde = new Date(desdeStr);
+            const hasta = new Date(hastaStr);
+
+            // Verificar si la fecha del slot está dentro del rango
+            if (slot.fecha >= desde && slot.fecha <= hasta) {
+              if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+                tieneExcepcionBloqueante = true;
+              }
+            }
+          }
+        }
+      });
+
+      return !tieneExcepcionBloqueante;
+    });
+
+    console.log('PUBLIC ENDPOINT - Slots después de filtrar excepciones:', slotsFiltrados.length);
+
+    // 🔹 Asignar citas a cada slot filtrado
+    const disponibilidadConCitas = slotsFiltrados.map(slot => {
+      const key = `${slot.tecnico_id}-${slot.hora_inicio.toISOString()}`;
+      const citas = citasMap.get(key) || [];
+
+      return {
+        ...slot,
+        citas: citas
+      };
+    });
+
     res.json({ data: toJSONSafe(disponibilidadConCitas) });
   } catch (err) {
     console.error("❌ Error al listar disponibilidad pública:", err);

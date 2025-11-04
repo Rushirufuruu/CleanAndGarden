@@ -90,6 +90,7 @@ export default function BookAppointmentPage() {
 		const [selectedTecnicoId, setSelectedTecnicoId] = useState<number | null>(null)
 		const [selectedMes, setSelectedMes] = useState<string>("")
 		const [slots, setSlots] = useState<Array<any>>([])
+		const [loadingSlots, setLoadingSlots] = useState(false)
 		const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null)
 		const [reservando, setReservando] = useState(false)
 
@@ -341,34 +342,56 @@ export default function BookAppointmentPage() {
 		// cargar slots cuando cambia el jardinero seleccionado
 		useEffect(() => {
 			if (selectedTecnicoId) {
+				setLoadingSlots(true)
 				fetch(`${API}/disponibilidad-mensual?usuarioId=${selectedTecnicoId}`)
 					.then(res => res.json())
 					.then(data => {
 						const allSlots = Array.isArray(data?.data) ? data.data : [];
-						// TEMPORAL: Mostrar TODOS los slots para comparar con gestión
-						const validSlots = allSlots;
+						// Filtrar slots válidos: solo fechas futuras y con cupos disponibles
+						const now = new Date();
+						const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+						const currentTime = now.getTime();
 
-						console.log('Slots from API:', allSlots);
-						console.log('Filtered slots:', validSlots);
+						const validSlots = allSlots.filter((slot: any) => {
+							const slotDate = new Date(slot.fecha);
+							const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
+							const slotStartTime = new Date(slot.hora_inicio).getTime();
 
-						// Crear un calendario completo con los próximos 30 días
-						const today = new Date();
-						today.setHours(0, 0, 0, 0);
-						const calendarSlots = [];
+							// Verificar que tenga cupos disponibles
+							const hasAvailableSpots = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
 
-						// Agregar slots existentes
-						for (const slot of validSlots) {
-							calendarSlots.push(slot);
-						}
+							// Verificar fecha futura o hoy con hora futura
+							const isFutureDate = slotDateOnly > today;
+							const isTodayWithFutureTime = slotDateOnly.getTime() === today.getTime() &&
+								slotStartTime > (currentTime + 30 * 60 * 1000); // 30 minutos de margen
 
-						// Agregar días vacíos para los próximos 30 días (solo si no tienen slots)
-						for (let i = 0; i < 30; i++) {
+							return hasAvailableSpots && (isFutureDate || isTodayWithFutureTime);
+						});
+
+						console.log('All slots from API:', allSlots.length);
+						console.log('Valid slots after filtering:', validSlots.length);
+
+						// Crear un calendario completo con los próximos 30 días FUTUROS
+						const calendarSlots: any[] = [];
+						const futureDays: Date[] = [];
+
+						// Generar lista de próximos 30 días futuros
+						for (let i = 1; i <= 30; i++) {
 							const futureDate = new Date(today);
 							futureDate.setDate(today.getDate() + i);
+							futureDays.push(new Date(futureDate));
+						}
 
+						// Agregar slots existentes que pasaron el filtro
+						validSlots.forEach((slot: any) => {
+							calendarSlots.push(slot);
+						});
+
+						// Agregar días vacíos SOLO para fechas futuras que no tienen slots
+						futureDays.forEach(futureDate => {
 							const dateKey = `${futureDate.getDate().toString().padStart(2, '0')}/${(futureDate.getMonth() + 1).toString().padStart(2, '0')}/${futureDate.getFullYear()}`;
 
-							// Verificar si ya existe un slot para este día
+							// Verificar si ya existe un slot válido para este día
 							const hasSlotForDay = validSlots.some((slot: any) => {
 								const slotDate = new Date(slot.fecha);
 								const slotDateKey = `${slotDate.getDate().toString().padStart(2, '0')}/${(slotDate.getMonth() + 1).toString().padStart(2, '0')}/${slotDate.getFullYear()}`;
@@ -376,7 +399,7 @@ export default function BookAppointmentPage() {
 							});
 
 							if (!hasSlotForDay) {
-								// Crear un slot "vacío" para este día
+								// Crear un slot "vacío" para este día futuro
 								calendarSlots.push({
 									id: `empty-${dateKey}`,
 									fecha: futureDate.toISOString().split('T')[0],
@@ -390,11 +413,16 @@ export default function BookAppointmentPage() {
 									citas: []
 								} as any);
 							}
-						}
+						});
 
+						console.log('Final calendar slots:', calendarSlots.length);
 						setSlots(calendarSlots);
 					})
-					.catch(err => console.debug('load slots failed', err))
+					.catch(err => {
+						console.debug('load slots failed', err)
+						setLoadingSlots(false)
+					})
+					.finally(() => setLoadingSlots(false))
 			} else {
 				setSlots([])
 			}
@@ -812,21 +840,16 @@ export default function BookAppointmentPage() {
 
 							{/* Seleccionar Mes */}
 							{/* Calendario de Disponibilidad Real */}
-							{selectedTecnicoId && slots.length === 0 && (
+							{selectedTecnicoId && (
 								<div className="mt-6">
 									<label className="block text-sm font-medium mb-2">Disponibilidad del jardinero</label>
-									<div className="border rounded p-4 bg-yellow-50 border-yellow-200">
-										<p className="text-yellow-800 text-center">
-											No hay horarios disponibles para este jardinero en las próximas fechas.
-											Esto puede deberse a que no tiene horarios configurados o todos los horarios disponibles ya pasaron.
-										</p>
-									</div>
-								</div>
-							)}
-							{slots.length > 0 && (
-								<div className="mt-6">
-									<label className="block text-sm font-medium mb-2">Disponibilidad del jardinero</label>
-									<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+									{loadingSlots ? (
+										<div className="flex items-center justify-center p-8">
+											<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+											<span className="ml-2 text-gray-600">Cargando horarios...</span>
+										</div>
+									) : slots.length > 0 ? (
+										<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 										 {Object.entries(
 											 slots.reduce((acc: Record<string, any[]>, slot: any) => {
 												 const fecha = new Date(slot.fecha);
@@ -903,24 +926,25 @@ export default function BookAppointmentPage() {
 											 );
 										 })}
 									</div>
+									) : (
+										<div className="text-center p-4 text-gray-500">
+											No hay horarios disponibles
+										</div>
+									)}
 								</div>
 							)}
 
 							{/* Lista de Slots Disponibles */}
-							{selectedTecnicoId && slots.filter(s => !s.isEmpty).length === 0 && (
+							{selectedTecnicoId && (
 								<div>
 									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
-									<div className="border rounded p-4 bg-yellow-50 border-yellow-200">
-										<p className="text-yellow-800 text-center text-sm">
-											No hay horarios disponibles para este jardinero.
-										</p>
-									</div>
-								</div>
-							)}
-							{slots.filter(s => !s.isEmpty).length > 0 && (
-								<div>
-									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
-									<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
+									{loadingSlots ? (
+										<div className="flex items-center justify-center p-4 border rounded bg-gray-50">
+											<div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+											<span className="ml-2 text-gray-600 text-sm">Cargando horarios...</span>
+										</div>
+									) : slots.filter(s => !s.isEmpty).length > 0 ? (
+										<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
 										{slots.filter(s => !s.isEmpty).map((slot) => {
 											const fecha = new Date(slot.fecha);
 											const fechaFormateada = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
@@ -965,6 +989,11 @@ export default function BookAppointmentPage() {
 											);
 										})}
 									</div>
+									) : (
+										<div className="text-center p-4 text-gray-500 border rounded bg-gray-50">
+											No hay horarios disponibles para seleccionar
+										</div>
+									)}
 								</div>
 							)}
 
