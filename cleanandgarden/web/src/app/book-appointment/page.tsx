@@ -415,6 +415,30 @@ export default function BookAppointmentPage() {
 		}, [selectedTecnicoId])
 
 	// Crear un jardín inline
+
+	// Helper: nombre del día en español (minúscula)
+	const weekdayName = (d: Date) => {
+		const names = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+		return names[d.getDay()];
+	}
+
+	// Formatea una Date a: "lunes 03-11-2025"
+	const formatDateLabelFromDate = (d: Date) => {
+		const day = String(d.getDate()).padStart(2, '0');
+		const month = String(d.getMonth() + 1).padStart(2, '0');
+		const year = d.getFullYear();
+		return `${weekdayName(d)} ${day}-${month}-${year}`;
+	}
+
+	// Convierte una key "DD/MM/YYYY" a label "lunes DD-MM-YYYY"
+	const formatDiaKeyToLabel = (dateKey: string) => {
+		// dateKey esperado: "DD/MM/YYYY"
+		const parts = dateKey.split('/').map(Number);
+		if (parts.length !== 3) return dateKey;
+		const [dd, mm, yyyy] = parts;
+		const d = new Date(yyyy, mm - 1, dd);
+		return formatDateLabelFromDate(d);
+	}
 	async function createGarden() {
 		if (!newGardenName || newGardenName.trim().length === 0) {
 			setError('El nombre del jardín no puede estar vacío')
@@ -850,15 +874,21 @@ export default function BookAppointmentPage() {
 											 return (
 											 <div key={dia} className="border rounded p-3 bg-gray-50">
 												 <div className="font-semibold mb-3 text-center bg-green-100 text-green-800 px-2 py-1 rounded">
-													 {dia}
+													 {formatDiaKeyToLabel(dia)}
 												 </div>
 												 <div className="space-y-2">
-												 {(daySlots as any[]).map((slot) => {
-														 const horaInicio = new Date(slot.hora_inicio).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-														 const horaFin = new Date(slot.hora_fin).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-														 const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
-														 const hasCitas = slot.citas && slot.citas.length > 0;
-														 const isEmpty = slot.isEmpty;
+										  {(daySlots as any[]).map((slot) => {
+											  const slotStart = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
+											  const slotEnd = slot.hora_fin ? new Date(slot.hora_fin) : null;
+											  const horaInicio = slotStart.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+											  const horaFin = slotEnd ? slotEnd.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+											  const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
+											  const hasCitas = slot.citas && slot.citas.length > 0;
+											  const isEmpty = slot.isEmpty;
+											  // Validación temporal: no permitir agendar si la hora ya pasó o está dentro del margen mínimo
+											  const nowMs = Date.now();
+											  const marginMs = 30 * 60 * 1000; // 30 minutos
+											  const isTooSoonOrPast = slotStart.getTime() <= (nowMs + marginMs);
 
 														 if (isEmpty) {
 															 return (
@@ -876,38 +906,43 @@ export default function BookAppointmentPage() {
 															 );
 														 }
 
-														 return (
-															 <div
-																 key={slot.id}
-																 onClick={() => isAvailable && setSelectedSlotId(slot.id)}
-																 className={`p-3 border rounded cursor-pointer hover:bg-gray-100 transition-colors ${
-																	 selectedSlotId === slot.id 
-																	 	? 'border-green-500 bg-green-50' 
-																	 	: isAvailable 
-																	 		? 'border-gray-300' 
-																	 		: 'border-red-300 bg-red-50 cursor-not-allowed'
-																 }`}
-															 >
-																 <div className="text-sm font-medium">
-																	 {horaInicio} - {horaFin}
-																 </div>
-																 {hasCitas ? (
-																	 <div className="text-xs text-red-600 mt-1">
-																		 <div className="font-medium">Reservado</div>
-																		 {slot.citas.map((cita: any) => (
-																			 <div key={cita.id} className="mt-1">
-																				 <div>{cita.servicio?.nombre}</div>
-																				 <div className="text-gray-500">{cita.jardin?.nombre}</div>
+																 const isSelectable = isAvailable && !isTooSoonOrPast && !isEmpty;
+																 return (
+																	 <div
+																		 key={slot.id}
+																		 onClick={() => isSelectable && setSelectedSlotId(slot.id)}
+																		 className={`p-3 border rounded ${isSelectable ? 'cursor-pointer hover:bg-gray-100' : 'cursor-not-allowed'} transition-colors ${
+																			 selectedSlotId === slot.id 
+																				 ? 'border-green-500 bg-green-50' 
+																				 : isSelectable 
+																					 ? 'border-gray-300' 
+																					 : 'border-red-300 bg-red-50'
+																		 }`}
+																	 >
+																		 <div className="text-sm font-medium">
+																			 {horaInicio}{horaFin ? ` - ${horaFin}` : ''}
+																		 </div>
+																		 {hasCitas ? (
+																			 <div className="text-xs text-red-600 mt-1">
+																				 <div className="font-medium">Reservado</div>
+																				 {slot.citas.map((cita: any) => (
+																					 <div key={cita.id} className="mt-1">
+																						 <div>{cita.servicio?.nombre}</div>
+																						 <div className="text-gray-500">{cita.jardin?.nombre}</div>
+																					 </div>
+																				 ))}
 																			 </div>
-																		 ))}
+																		 ) : isTooSoonOrPast ? (
+																			 <div className="text-xs text-gray-600 mt-1">
+																				 Horario no disponible (hora pasada o muy próxima)
+																			 </div>
+																		 ) : (
+																			 <div className="text-xs text-gray-600 mt-1">
+																				 {slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
+																			 </div>
+																		 )}
 																	 </div>
-																 ) : (
-																	 <div className="text-xs text-gray-600 mt-1">
-																		 {slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
-																	 </div>
-																 )}
-															 </div>
-														 );
+																 );
 													 })}
 												 </div>
 											 </div>
@@ -934,48 +969,57 @@ export default function BookAppointmentPage() {
 									) : slots.filter(s => !s.isEmpty).length > 0 ? (
 										<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
 											{slots.filter(s => !s.isEmpty).map((slot) => {
-											const fecha = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
-											const fechaFormateada = `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
-											const horaInicio = new Date(slot.hora_inicio).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-											const horaFin = new Date(slot.hora_fin).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-											const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
-											const hasCitas = slot.citas && slot.citas.length > 0;
-											return (
-												<div
-													key={slot.id}
-													onClick={() => isAvailable && setSelectedSlotId(slot.id)}
-													className={`p-3 border rounded cursor-pointer hover:bg-white transition-colors ${
-														selectedSlotId === slot.id 
-															? 'border-green-500 bg-green-50' 
-															: isAvailable 
-																? 'border-gray-300' 
-																: 'border-red-300 bg-red-50 cursor-not-allowed'
-													}`}
-												>
-													<div className="flex justify-between items-center">
-														<div>
-															<div className="font-medium">{fechaFormateada}</div>
-															<div className="text-sm text-gray-600">{horaInicio} - {horaFin}</div>
-															{hasCitas ? (
-																<div className="text-xs text-red-600 mt-1">
-																	<div className="font-medium">Reservado</div>
-																	{slot.citas.map((cita: any) => (
-																		<div key={cita.id} className="mt-1">
-																			<div>{cita.servicio?.nombre}</div>
-																			<div className="text-gray-500">{cita.jardin?.nombre}</div>
-																		</div>
-																	))}
-																</div>
-															) : (
-																<div className="text-xs text-gray-500 mt-1">
-																	{slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
-																</div>
-															)}
+												const slotStart = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
+												const slotEnd = slot.hora_fin ? new Date(slot.hora_fin) : null;
+												const fechaFormateada = formatDateLabelFromDate(slotStart);
+												const horaInicio = slotStart.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+												const horaFin = slotEnd ? slotEnd.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+												const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
+												const hasCitas = slot.citas && slot.citas.length > 0;
+												const nowMs = Date.now();
+												const marginMs = 30 * 60 * 1000; // 30 minutos
+												const isTooSoonOrPast = slotStart.getTime() <= (nowMs + marginMs);
+												const isSelectable = isAvailable && !isTooSoonOrPast;
+												return (
+													<div
+														key={slot.id}
+														onClick={() => isSelectable && setSelectedSlotId(slot.id)}
+														className={`p-3 border rounded ${isSelectable ? 'cursor-pointer hover:bg-white' : 'cursor-not-allowed'} transition-colors ${
+															selectedSlotId === slot.id 
+																? 'border-green-500 bg-green-50' 
+																: isSelectable 
+																	? 'border-gray-300' 
+																	: 'border-red-300 bg-red-50'
+														}`}
+													>
+														<div className="flex justify-between items-center">
+															<div>
+																<div className="font-medium">{fechaFormateada}</div>
+																<div className="text-sm text-gray-600">{horaInicio}{horaFin ? ` - ${horaFin}` : ''}</div>
+																{hasCitas ? (
+																	<div className="text-xs text-red-600 mt-1">
+																		<div className="font-medium">Reservado</div>
+																		{slot.citas.map((cita: any) => (
+																			<div key={cita.id} className="mt-1">
+																				<div>{cita.servicio?.nombre}</div>
+																				<div className="text-gray-500">{cita.jardin?.nombre}</div>
+																			</div>
+																		))}
+																	</div>
+																) : isTooSoonOrPast ? (
+																	<div className="text-xs text-gray-600 mt-1">
+																		Horario no disponible (hora pasada o muy próxima)
+																	</div>
+																) : (
+																	<div className="text-xs text-gray-500 mt-1">
+																		{slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
+																	</div>
+																)}
+															</div>
 														</div>
 													</div>
-												</div>
-											);
-										})}
+												);
+											})}
 									</div>
 									) : (
 										<div className="text-center p-4 text-gray-500 border rounded bg-gray-50">
