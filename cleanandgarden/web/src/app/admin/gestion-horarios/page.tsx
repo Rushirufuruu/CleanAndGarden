@@ -46,6 +46,10 @@ export default function GestionHorarios() {
   const [excepciones, setExcepciones] = useState<any[]>([]);
   const [mesActual, setMesActual] = useState<Date>(new Date());
   const [filtroTrabajador, setFiltroTrabajador] = useState<number | null>(null);
+  // Modal para ver detalle de citas de un slot
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalCitas, setModalCitas] = useState<any[] | null>(null);
+  const [modalSlot, setModalSlot] = useState<Slot | null>(null);
 
   // ===== Helpers de fecha y agrupación (corregidos) =====
   const toLocalDateKey = (iso: string | Date) => {
@@ -395,6 +399,50 @@ export default function GestionHorarios() {
           </p>
         </div>
       </div>
+
+      {/* Modal detalle de citas */}
+      {modalOpen && modalCitas && (
+        <div
+          onClick={() => setModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-200"
+          style={{ backgroundColor: 'rgba(15,15,10,0.15)', backdropFilter: 'blur(4px)' }}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 shadow-lg">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold" style={{ color: '#2E5430' }}>
+                  Detalle de reservas
+                </h3>
+                {modalSlot && (
+                  <div className="text-sm text-gray-600">
+                    {formatDateCL(modalSlot.fecha)} • {formatTime(modalSlot.hora_inicio)}–{formatTime(modalSlot.hora_fin)} • {modalSlot.usuario?.nombre} {modalSlot.usuario?.apellido}
+                  </div>
+                )}
+              </div>
+              <div>
+                <button onClick={() => setModalOpen(false)} className="px-3 py-1 rounded bg-gray-200">Cerrar</button>
+              </div>
+            </div>
+
+                    <div className="space-y-3 max-h-72 overflow-auto">
+              {modalCitas.length === 0 ? (
+                <div className="text-sm text-gray-600">No hay reservas.</div>
+              ) : (
+                modalCitas.map((c: any) => (
+                  <div key={c.id} className="border rounded p-3">
+                    <div className="font-medium">{c.usuario_cita_cliente_idTousuario?.nombre ?? c.nombre_cliente ?? 'Cliente'}</div>
+                    <div className="text-sm text-gray-600">Servicio: {(c.servicio?.nombre ?? c.nombre_servicio) || '—'}</div>
+                    <div className="text-sm text-gray-600">Jardín: {c.jardin?.nombre ?? '—'}</div>
+                    <div className="text-sm text-gray-600">Fecha y hora: {c.fecha_hora ? new Date(c.fecha_hora).toLocaleString('es-CL') : '—'}</div>
+                    <div className="text-sm text-gray-600">Estado: {c.estado}</div>
+                    {c.notas_cliente && <div className="text-sm text-gray-700 mt-1">Notas: {c.notas_cliente}</div>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Panel de configuración */}
       <div className="px-6">
@@ -794,6 +842,15 @@ export default function GestionHorarios() {
                               )}
                             </div>
                             <div className="flex gap-1 shrink-0 ml-2">
+                              {hasCitas && (
+                                <button
+                                  onClick={() => { setModalCitas(s.citas!); setModalSlot(s); setModalOpen(true); }}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-blue-200 hover:bg-blue-300"
+                                  title="Ver detalle"
+                                >
+                                  📋
+                                </button>
+                              )}
                               <button
                                 onClick={() => editarSlot(s)}
                                 className="text-[10px] px-2 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300"

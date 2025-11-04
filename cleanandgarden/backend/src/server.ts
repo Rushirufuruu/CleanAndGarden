@@ -3288,6 +3288,37 @@ app.post("/cita/reservar", async (req, res) => {
   }
 });
 
+// Obtener citas del cliente autenticado
+app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const clienteId = Number(user?.id);
+    if (!clienteId) return res.status(400).json({ error: 'Cliente no identificado' });
+
+    const ahora = new Date();
+
+    const citas = await prisma.cita.findMany({
+      where: {
+        cliente_id: BigInt(clienteId),
+        // traer solo futuras o activas
+        fecha_hora: { gte: ahora },
+        estado: { in: ['pendiente', 'confirmada'] }
+      },
+      include: {
+        servicio: { select: { id: true, nombre: true, duracion_minutos: true } },
+        jardin: { select: { id: true, nombre: true } },
+        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } }
+      },
+      orderBy: { fecha_hora: 'asc' }
+    });
+
+    res.json(toJSONSafe(citas));
+  } catch (err) {
+    console.error('Error al obtener citas del cliente:', err);
+    res.status(500).json({ error: 'Error interno al obtener citas' });
+  }
+});
+
 
 
 //  eliminar horario individual

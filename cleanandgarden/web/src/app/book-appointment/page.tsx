@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
+import Swal from 'sweetalert2'
 import { supabase } from "../../lib/supabase"
 import { useRouter } from "next/navigation"
 
@@ -93,6 +94,9 @@ export default function BookAppointmentPage() {
 		const [loadingSlots, setLoadingSlots] = useState(false)
 		const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null)
 		const [reservando, setReservando] = useState(false)
+
+		// Mis citas (cliente)
+
 
 		// edit controls
 		const [isEditing, setIsEditing] = useState(false)
@@ -204,6 +208,8 @@ export default function BookAppointmentPage() {
 			}
 			init()
 		}, [])
+
+
 
 		// Cargar jardineros también en modo público si el usuario no está autenticado
 		useEffect(() => {
@@ -557,13 +563,20 @@ export default function BookAppointmentPage() {
 			})
 			if (!res.ok) throw new Error('No se pudo reservar la cita')
 			const body = await res.json()
-			alert('Cita reservada exitosamente!')
-			// resetear selecciones
-			setSelectedServicioId(null)
-			setSelectedTecnicoId(null)
-			setSelectedMes('')
-			setSlots([])
-			setSelectedSlotId(null)
+			// mostrar un toast y redirigir al listado de agendamientos
+			Swal.fire({
+				toast: true,
+				position: 'top-end',
+				icon: 'success',
+				title: 'Cita reservada exitosamente!',
+				showConfirmButton: false,
+				timer: 2500,
+				timerProgressBar: true,
+			})
+			// dar un pequeño retraso para que el usuario vea el toast antes de navegar
+			setTimeout(() => {
+				router.push('/agendamientos')
+			}, 800)
 		} catch (err: any) {
 			console.error(err)
 			setError(err?.message ?? 'Error reservando cita')
@@ -610,6 +623,8 @@ export default function BookAppointmentPage() {
 	 		<div className="min-h-screen bg-[#fefaf2] py-8 px-4">
 	 			<div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
 	 				<h1 className="mb-4 text-2xl font-bold text-[#2E5430]">Tus datos</h1>
+
+
 
 	 				{loading && <div>Cargando...</div>}
 	 				{error && <div className="text-red-600">{error}</div>}
