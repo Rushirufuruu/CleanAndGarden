@@ -3302,7 +3302,8 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
         cliente_id: BigInt(clienteId),
         // traer solo futuras o activas
         fecha_hora: { gte: ahora },
-        estado: { in: ['pendiente', 'confirmada'] }
+          // incluir también citas canceladas para que el cliente pueda ver el historial
+          estado: { in: ['pendiente', 'confirmada', 'cancelada'] }
       },
       include: {
         servicio: { select: { id: true, nombre: true, duracion_minutos: true } },
@@ -3316,6 +3317,82 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error al obtener citas del cliente:', err);
     res.status(500).json({ error: 'Error interno al obtener citas' });
+  }
+});
+
+
+// Cancelar una cita por parte del cliente (o admin). Regla: solo se puede cancelar hasta las 12:00 del día anterior.
+app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const userId = Number(user?.id);
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Falta id de cita' });
+
+    const citaId = BigInt(id);
+
+    // Buscar cita
+    const cita = await prisma.cita.findUnique({ where: { id: citaId } });
+    if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+
+    // Solo el cliente que reservó o admin puede cancelar
+    const isOwner = Number(cita.cliente_id) === userId;
+    const isAdmin = (user?.rol?.codigo === 'admin') || (user?.rol === 'admin');
+    if (!isOwner && !isAdmin) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
+
+    // Verificar estado actual
+    if (!['pendiente', 'confirmada'].includes(cita.estado)) {
+      return res.status(400).json({ error: 'La cita no está en un estado que permita cancelación' });
+    }
+
+    // Regla de tiempo: hasta las 12:00 del día anterior (hora local del servidor)
+    const fecha = new Date(cita.fecha_hora);
+    const deadline = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() - 1, 12, 0, 0, 0);
+    const ahora = new Date();
+    if (ahora > deadline && !isAdmin) {
+      return res.status(400).json({ error: 'Plazo de cancelación expirado (hasta las 12:00 del día anterior)' });
+    }
+
+    // Leer motivo/notas opcionales del body
+    const { motivo_cancelacion, notas_cancelacion } = req.body ?? {};
+
+    // Ejecutar en transacción: actualizar estado de la cita, registrar metadatos de cancelación y liberar cupo si existe el slot
+    const result = await prisma.$transaction(async (tx) => {
+      // Actualizar estado de la cita y metadata
+      const updated = await tx.cita.update({
+        where: { id: citaId },
+        data: {
+          estado: 'cancelada',
+          cancelada_en: new Date(),
+          cancelada_por_usuario_id: userId ? BigInt(userId) : undefined,
+          cancelada_por_rol: (user?.rol?.codigo ?? user?.rol) || undefined,
+          motivo_cancelacion: motivo_cancelacion ?? undefined,
+          notas_cancelacion: notas_cancelacion ?? undefined,
+        },
+      });
+
+      // Intentar encontrar el slot correspondiente para decrementar cupos_ocupados
+      // Construir cláusula where de forma segura (tecnico_id puede ser null)
+      const whereClause: any = { hora_inicio: cita.fecha_hora };
+      if (cita.tecnico_id !== null && cita.tecnico_id !== undefined) {
+        whereClause.tecnico_id = cita.tecnico_id;
+      }
+
+      const slot = await tx.disponibilidad_mensual.findFirst({ where: whereClause });
+
+      if (slot) {
+        // Decrementar sin bajar de cero
+        const nuevos = Math.max((slot.cupos_ocupados ?? 0) - 1, 0);
+        await tx.disponibilidad_mensual.update({ where: { id: slot.id }, data: { cupos_ocupados: nuevos } });
+      }
+
+      return updated;
+    });
+
+    res.json({ ok: true, cita: toJSONSafe(result) });
+  } catch (err) {
+    console.error('Error al cancelar cita:', err);
+    res.status(500).json({ error: 'Error interno al cancelar cita' });
   }
 });
 
