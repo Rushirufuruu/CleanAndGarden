@@ -551,6 +551,9 @@ export default function BookAppointmentPage() {
 
 		setReservando(true)
 		try {
+			// Incluir el precio aplicado del servicio seleccionado (si está disponible)
+			const servicioSeleccionado = servicios.find(s => Number(s.id) === selectedServicioId)
+			const precioAplicado = servicioSeleccionado?.precio ?? undefined
 			const res = await fetch(`${API}/cita/reservar`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -558,7 +561,8 @@ export default function BookAppointmentPage() {
 					disponibilidad_mensual_id: selectedSlotId,
 					cliente_id: clienteId,
 					jardin_id: selectedGardenId,
-					servicio_id: selectedServicioId
+					servicio_id: selectedServicioId,
+					precio_aplicado: precioAplicado
 				})
 			})
 			if (!res.ok) throw new Error('No se pudo reservar la cita')

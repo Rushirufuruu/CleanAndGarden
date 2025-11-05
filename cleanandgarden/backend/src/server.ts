@@ -3375,6 +3375,117 @@ app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Respons
       // Construir cláusula where de forma segura (tecnico_id puede ser null)
       const whereClause: any = { hora_inicio: cita.fecha_hora };
       if (cita.tecnico_id !== null && cita.tecnico_id !== undefined) {
+
+    // Iniciar pago con Webpay (Webpay Plus) usando transbank-sdk
+    app.post('/pago/init', authMiddleware, async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        const userId = Number(user?.id);
+        const { cita_id } = req.body ?? {};
+        if (!cita_id) return res.status(400).json({ error: 'Falta cita_id' });
+
+        const citaId = BigInt(cita_id);
+        const cita = await prisma.cita.findUnique({ where: { id: citaId }, include: { servicio: true } });
+        if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+
+        // determinar monto
+        const monto = Number(cita.precio_aplicado ?? cita.servicio?.precio_clp ?? 0);
+
+        // crear registro de pago pendiente
+        const pago = await prisma.pago.create({
+          data: {
+            cita_id: cita.id,
+            usuario_id: BigInt(userId),
+            metodo: 'flow',
+            estado: 'pendiente',
+            monto_clp: monto,
+            moneda: 'CLP'
+          }
+        });
+
+        // Usar transbank-sdk para iniciar la transacción
+        let tbk: any;
+        try {
+          tbk = require('transbank-sdk');
+        } catch (e) {
+          console.error('Transbank SDK require error', e);
+          return res.status(500).json({ error: 'SDK Transbank no disponible en el servidor' });
+        }
+
+        const WebpayPlus = tbk.WebpayPlus;
+        const commerceCode = process.env.TBK_COMMERCE_CODE ?? '';
+        const apiKey = process.env.TBK_API_KEY ?? '';
+        const returnUrl = process.env.TBK_RETURN_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/pago/return`;
+
+        const transaction = WebpayPlus.Transaction.buildForIntegration(commerceCode, apiKey);
+        const buyOrder = `order_${pago.id}_${Date.now()}`;
+        const sessionId = `sess_${userId}_${Date.now()}`;
+
+        const createRes = await transaction.create(buyOrder, sessionId, monto, returnUrl);
+
+        // actualizar pago con metadatos de flujo
+        await prisma.pago.update({ where: { id: pago.id }, data: { flow_order_id: buyOrder, flow_token: createRes?.token ?? createRes?.token_ws ?? null, flow_payload: createRes } });
+
+        // Responder con la URL/token para redirigir al cliente a Webpay
+        return res.json({ ok: true, pago_id: pago.id, buyOrder, token: createRes?.token ?? createRes?.token_ws ?? null, url: createRes?.url ?? createRes?.url_redirection ?? createRes?.url_ws ?? null, raw: createRes });
+      } catch (err: any) {
+        console.error('pago init error', err);
+        res.status(500).json({ error: err?.message ?? 'Error iniciando pago' });
+      }
+    });
+
+    // Endpoint para recibir el retorno de Webpay (commit) y actualizar el pago y la cita
+    app.post('/pago/return', async (req: Request, res: Response) => {
+      try {
+        // Webpay suele enviar token_ws en body/query. Aceptamos ambos.
+        const token = req.body?.token_ws ?? req.body?.token ?? req.query?.token_ws ?? req.query?.token;
+        if (!token) return res.status(400).send('token faltante');
+
+        // inicializar SDK
+        let tbk: any;
+        try {
+          tbk = require('transbank-sdk');
+        } catch (e) {
+          console.error('Transbank SDK require error', e);
+          return res.status(500).send('SDK Transbank no disponible');
+        }
+
+        const WebpayPlus = tbk.WebpayPlus;
+        const commerceCode = process.env.TBK_COMMERCE_CODE ?? '';
+        const apiKey = process.env.TBK_API_KEY ?? '';
+        const transaction = WebpayPlus.Transaction.buildForIntegration(commerceCode, apiKey);
+
+        // Commit/obtener resultado
+        const commitRes = await transaction.commit(token);
+
+        // Buscar pago por token si existe
+        const pago = await prisma.pago.findFirst({ where: { flow_token: token } });
+
+        // Mapear estado
+        const aprobado = commitRes && (commitRes?.status === 'AUTHORIZED' || commitRes?.response_code === 0 || commitRes?.type === 'venta');
+        const nuevoEstado = aprobado ? 'aprobado' : 'rechazado';
+
+        // Actualizar pago y registrar evento
+        if (pago) {
+          await prisma.$transaction(async (tx) => {
+            await tx.pago.update({ where: { id: pago.id }, data: { estado: nuevoEstado, flow_payload: commitRes } });
+            await tx.pago_evento.create({ data: { pago_id: pago.id, tipo_evento: 'return', estado_anterior: pago.estado as any, estado_nuevo: nuevoEstado as any, detalle: commitRes } });
+
+            if (aprobado) {
+              // marcar cita como confirmada
+              await tx.cita.update({ where: { id: pago.cita_id }, data: { estado: 'confirmada' } });
+            }
+          });
+        }
+
+        // Responder con la info de la transacción (Webpay normalmente espera una redirección a la app)
+        // Para simplicidad devolvemos JSON con resultado.
+        return res.json({ ok: true, aprobado: aprobado, commit: commitRes });
+      } catch (err: any) {
+        console.error('pago return error', err);
+        return res.status(500).json({ error: err?.message ?? 'Error procesando retorno de pago' });
+      }
+    });
         whereClause.tecnico_id = cita.tecnico_id;
       }
 
