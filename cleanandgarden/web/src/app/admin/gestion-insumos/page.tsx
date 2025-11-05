@@ -182,42 +182,56 @@ export default function GestionInsumos() {
             {editId ? "✏️ Editar insumo" : <><Plus size={18} /> Crear nuevo insumo</>}
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="Nombre del insumo"
-              className="border border-[#2E5430] rounded-lg p-2 text-[#2E5430]"
-              value={form.nombre}
-              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-            />
-            <input
-              type="number"
-              placeholder="Precio unitario"
-              className="border border-[#2E5430] rounded-lg p-2 text-[#2E5430]"
-              value={form.precio_unitario}
-              onChange={(e) =>
-                setForm({ ...form, precio_unitario: e.target.value })
-              }
-            />
-            <input
-              type="number"
-              placeholder="Stock actual"
-              className="border border-[#2E5430] rounded-lg p-2 text-[#2E5430]"
-              value={form.stock_actual}
-              onChange={(e) =>
-                setForm({ ...form, stock_actual: e.target.value })
-              }
-            />
-            <input
-              type="text"
-              placeholder="Descripción"
-              className="border border-[#2E5430] rounded-lg p-2 col-span-2 text-[#2E5430]"
-              value={form.descripcion}
-              onChange={(e) =>
-                setForm({ ...form, descripcion: e.target.value })
-              }
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[#2E5430]">
+            {/* Nombre del insumo */}
+            <div className="flex flex-col">
+              <label className="text-sm font-semibold mb-1">Nombre del insumo</label>
+              <input
+                type="text"
+                placeholder="Ej: Fertilizante orgánico"
+                className="border border-[#2E5430] rounded-lg p-2"
+                value={form.nombre}
+                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+              />
+            </div>
+
+            {/* Precio unitario */}
+            <div className="flex flex-col">
+              <label className="text-sm font-semibold mb-1">Precio unitario</label>
+              <input
+                type="number"
+                placeholder="Ej: 5000"
+                className="border border-[#2E5430] rounded-lg p-2"
+                value={form.precio_unitario}
+                onChange={(e) => setForm({ ...form, precio_unitario: e.target.value })}
+              />
+            </div>
+
+            {/* Stock actual */}
+            <div className="flex flex-col">
+              <label className="text-sm font-semibold mb-1">Stock actual</label>
+              <input
+                type="number"
+                placeholder="Ej: 30"
+                className="border border-[#2E5430] rounded-lg p-2"
+                value={form.stock_actual}
+                onChange={(e) => setForm({ ...form, stock_actual: e.target.value })}
+              />
+            </div>
+
+            {/* Descripción */}
+            <div className="flex flex-col md:col-span-2">
+              <label className="text-sm font-semibold mb-1">Descripción</label>
+              <input
+                type="text"
+                placeholder="Ej: Insumo utilizado para el césped"
+                className="border border-[#2E5430] rounded-lg p-2"
+                value={form.descripcion}
+                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+              />
+            </div>
           </div>
+
 
           <div className="flex justify-end gap-3 mt-6">
             {editId && (

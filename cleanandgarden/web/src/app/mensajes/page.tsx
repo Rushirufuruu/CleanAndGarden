@@ -127,7 +127,7 @@ export default function MensajesPage() {
       }
     }
 
-    socket.onerror = (err) => console.error('Error WebSocket:', err)
+    socket.onerror = (err) => console.log('Error WebSocket:', err)
     socket.onclose = () => console.log('WebSocket cerrado en conversaciones')
 
     return () => {

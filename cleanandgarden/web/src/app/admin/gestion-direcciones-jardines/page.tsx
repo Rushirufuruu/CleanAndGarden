@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Swal from "sweetalert2";
-import { Plus, Edit2, Power, Trash2, Home } from "lucide-react";
+import { Plus, Edit2, Power, Trash2, Home, Lightbulb } from "lucide-react";
 
 interface Jardin {
   id: number;
@@ -208,116 +208,130 @@ export default function GestionDireccionesJardines() {
               {editId ? "Editar Jardín" : " Crear nuevo Jardín"}
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Nombre */}
-              <div>
-                <input
-                  type="text"
-                  placeholder="Nombre del jardín"
-                  className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
-                    errors.nombre ? "border-red-500" : ""
-                  }`}
-                  value={form.nombre}
-                  onChange={(e) => {
-                    setForm({ ...form, nombre: e.target.value });
-                    if (errors.nombre) setErrors((prev) => ({ ...prev, nombre: "" }));
-                  }}
-                />
-                {errors.nombre && (
-                  <p className="text-red-600 text-sm mt-1">{errors.nombre}</p>
-                )}
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[#2E5430]">
+  {/* Nombre */}
+  <div>
+    <label className="block text-sm font-semibold mb-1">
+      Nombre del jardín
+    </label>
+    <input
+      type="text"
+      placeholder="Ej: Jardín delantero"
+      className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
+        errors.nombre ? "border-red-500" : ""
+      }`}
+      value={form.nombre}
+      onChange={(e) => {
+        setForm({ ...form, nombre: e.target.value });
+        if (errors.nombre) setErrors((prev) => ({ ...prev, nombre: "" }));
+      }}
+    />
+    {errors.nombre && (
+      <p className="text-red-600 text-sm mt-1">{errors.nombre}</p>
+    )}
+  </div>
 
-              {/* Área con ayuda  */}
-              <div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    placeholder="Área (m²)"
-                    className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
-                      errors.area_m2 ? "border-red-500" : ""
-                    }`}
-                    value={form.area_m2}
-                    onChange={(e) => {
-                      setForm({ ...form, area_m2: e.target.value });
-                      if (errors.area_m2)
-                        setErrors((prev) => ({ ...prev, area_m2: "" }));
-                    }}
-                  />
-                  {/* Botón de ayuda */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      Swal.fire({
-                        title: "¿Cómo calcular el área del jardín?",
-                        html: `
-                          <div style="text-align: left; line-height: 1.6; font-size: 15px;">
-                            <p><b>Mide el largo</b> y el <b>ancho</b> de tu patio (en metros), y luego multiplícalos.</p>
-                            <p style="margin-top: 10px;">
-                              Ejemplo: un jardín de <b>10 metros de largo</b> por <b>5 metros de ancho</b> → Área = 10 × 5 = 50 m²
-                            </p>
-                            <p style="margin-top: 10px; font-style: italic; color: #555;">
-                              Ingresa el resultado (por ejemplo: <b>50</b>) en el campo "Área (m²)".
-                            </p>
-                          </div>
-                        `,
-                        confirmButtonText: "Entendido",
-                        confirmButtonColor: "#2E5430",
-                        background: "#F9F8F6",
-                        color: "#2E5430",
-                      });
-                    }}
-                    className="text-[#2E5430] hover:text-[#254526] text-lg"
-                    title="¿Cómo calcular el área?"
-                  >
-                    
-                  </button>
-                </div>
-                {errors.area_m2 && (
-                  <p className="text-red-600 text-sm mt-1">{errors.area_m2}</p>
-                )}
-              </div>
+  {/* Área con ayuda */}
+  <div>
+    <label className="block text-sm font-semibold mb-1">
+      Área (m²)
+    </label>
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        placeholder="Ej: 50"
+        className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
+          errors.area_m2 ? "border-red-500" : ""
+        }`}
+        value={form.area_m2}
+        onChange={(e) => {
+          setForm({ ...form, area_m2: e.target.value });
+          if (errors.area_m2) setErrors((prev) => ({ ...prev, area_m2: "" }));
+        }}
+      />
 
-              {/* Tipo de suelo */}
-              <div>
-                <input
-                  type="text"
-                  placeholder="Tipo de suelo"
-                  className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
-                    errors.tipo_suelo ? "border-red-500" : ""
-                  }`}
-                  value={form.tipo_suelo}
-                  onChange={(e) => {
-                    setForm({ ...form, tipo_suelo: e.target.value });
-                    if (errors.tipo_suelo)
-                      setErrors((prev) => ({ ...prev, tipo_suelo: "" }));
-                  }}
-                />
-                {errors.tipo_suelo && (
-                  <p className="text-red-600 text-sm mt-1">{errors.tipo_suelo}</p>
-                )}
+      {/* Botón de ayuda */}
+      <button
+        type="button"
+        onClick={() => {
+          Swal.fire({
+            title: "¿Cómo calcular el área del jardín?",
+            html: `
+              <div style="text-align: left; line-height: 1.6; font-size: 15px;">
+                <p><b>Mide el largo</b> y el <b>ancho</b> de tu patio (en metros), y luego multiplícalos.</p>
+                <p style="margin-top: 10px;">
+                  Ejemplo: un jardín de <b>10 metros de largo</b> por <b>5 metros de ancho</b> → Área = 10 × 5 = 50 m²
+                </p>
+                <p style="margin-top: 10px; font-style: italic; color: #555;">
+                  Ingresa el resultado (por ejemplo: <b>50</b>) en el campo "Área (m²)".
+                </p>
               </div>
+            `,
+            confirmButtonText: "Entendido",
+            confirmButtonColor: "#2E5430",
+            background: "#F9F8F6",
+            color: "#2E5430",
+          });
+        }}
+        className="text-[#2E5430] hover:text-[#254526] p-1 rounded-full hover:bg-[#E7E3D7] transition-colors"
+        title="Consejo para calcular el área"
+      >
+        <Lightbulb size={20} strokeWidth={2} />
+      </button>
 
-              {/* Descripción */}
-              <div className="md:col-span-2">
-                <input
-                  type="text"
-                  placeholder="Descripción"
-                  className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
-                    errors.descripcion ? "border-red-500" : ""
-                  }`}
-                  value={form.descripcion}
-                  onChange={(e) => {
-                    setForm({ ...form, descripcion: e.target.value });
-                    if (errors.descripcion)
-                      setErrors((prev) => ({ ...prev, descripcion: "" }));
-                  }}
-                />
-                {errors.descripcion && (
-                  <p className="text-red-600 text-sm mt-1">{errors.descripcion}</p>
-                )}
-              </div>
-            </div>
+    </div>
+    {errors.area_m2 && (
+      <p className="text-red-600 text-sm mt-1">{errors.area_m2}</p>
+    )}
+  </div>
+
+    {/* Tipo de suelo */}
+    <div>
+      <label className="block text-sm font-semibold mb-1">
+        Tipo de suelo
+      </label>
+      <input
+        type="text"
+        placeholder="Ej: Tierra vegetal"
+        className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
+          errors.tipo_suelo ? "border-red-500" : ""
+        }`}
+        value={form.tipo_suelo}
+        onChange={(e) => {
+          setForm({ ...form, tipo_suelo: e.target.value });
+          if (errors.tipo_suelo)
+            setErrors((prev) => ({ ...prev, tipo_suelo: "" }));
+        }}
+      />
+      {errors.tipo_suelo && (
+        <p className="text-red-600 text-sm mt-1">{errors.tipo_suelo}</p>
+      )}
+    </div>
+
+    {/* Descripción */}
+    <div className="md:col-span-2">
+      <label className="block text-sm font-semibold mb-1">
+        Descripción
+      </label>
+      <input
+        type="text"
+        placeholder="Ej: Jardín frontal con pasto y flores ornamentales"
+        className={`border rounded-lg p-2 w-full border-[#CBB896] focus:ring-2 focus:ring-[#2E5430] outline-none ${
+          errors.descripcion ? "border-red-500" : ""
+        }`}
+        value={form.descripcion}
+        onChange={(e) => {
+          setForm({ ...form, descripcion: e.target.value });
+          if (errors.descripcion)
+            setErrors((prev) => ({ ...prev, descripcion: "" }));
+        }}
+      />
+      {errors.descripcion && (
+        <p className="text-red-600 text-sm mt-1">{errors.descripcion}</p>
+      )}
+    </div>
+  </div>
+
 
             <div className="flex justify-end mt-4 gap-3">
               <button

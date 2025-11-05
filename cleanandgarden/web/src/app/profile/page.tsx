@@ -427,10 +427,13 @@ export default function PerfilUsuario() {
                       <select
                         value={dir.region}
                         onChange={(e) => {
-                          handleDireccionChange(index, "region", e.target.value);
-                          handleDireccionChange(index, "comuna", "");
+                          const selectedRegionName = e.target.value;
+                          // Actualiza solo la región
+                          handleDireccionChange(index, "region", selectedRegionName);
+
+                          // Busca el id de la región y carga sus comunas
                           const selectedRegion = regiones.find(
-                            (r) => r.nombre === e.target.value
+                            (r) => r.nombre === selectedRegionName
                           );
                           if (selectedRegion) fetchComunas(selectedRegion.id);
                         }}
@@ -444,6 +447,7 @@ export default function PerfilUsuario() {
                           </option>
                         ))}
                       </select>
+
 
                       <label className="block text-gray-600 text-sm mb-1">Comuna *</label>
                       <select
