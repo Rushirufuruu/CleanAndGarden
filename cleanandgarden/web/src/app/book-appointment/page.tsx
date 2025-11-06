@@ -901,7 +901,7 @@ export default function BookAppointmentPage() {
 											  const slotEnd = slot.hora_fin ? new Date(slot.hora_fin) : null;
 											  const horaInicio = slotStart.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 											  const horaFin = slotEnd ? slotEnd.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
-											  const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
+												const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
 											  const hasCitas = slot.citas && slot.citas.length > 0;
 											  const isEmpty = slot.isEmpty;
 											  // Validación temporal: no permitir agendar si la hora ya pasó o está dentro del margen mínimo
@@ -925,7 +925,8 @@ export default function BookAppointmentPage() {
 															 );
 														 }
 
-																 const isSelectable = isAvailable && !isTooSoonOrPast && !isEmpty;
+																 // Política: no permitir seleccionar si ya tiene citas (tratamos el slot como tomado)
+																 const isSelectable = isAvailable && !isTooSoonOrPast && !isEmpty && !hasCitas;
 																 return (
 																	 <div
 																		 key={slot.id}
@@ -935,7 +936,7 @@ export default function BookAppointmentPage() {
 																				 ? 'border-green-500 bg-green-50' 
 																				 : isSelectable 
 																					 ? 'border-gray-300' 
-																					 : 'border-red-300 bg-red-50'
+																					 : (hasCitas ? 'border-yellow-400 bg-yellow-50' : 'border-red-300 bg-red-50')
 																		 }`}
 																	 >
 																		 <div className="text-sm font-medium">
@@ -976,77 +977,7 @@ export default function BookAppointmentPage() {
 								</div>
 							)}
 
-							{/* Lista de Slots Disponibles */}
-							{selectedTecnicoId && (
-								<div>
-									<label className="block text-sm font-medium mb-1">Horarios Disponibles *</label>
-									{loadingSlots ? (
-										<div className="flex items-center justify-center p-4 border rounded bg-gray-50">
-											<div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
-											<span className="ml-2 text-gray-600 text-sm">Cargando horarios...</span>
-										</div>
-									) : slots.filter(s => !s.isEmpty).length > 0 ? (
-										<div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded p-2 bg-gray-50">
-											{slots.filter(s => !s.isEmpty).map((slot) => {
-												const slotStart = slot.hora_inicio ? new Date(slot.hora_inicio) : new Date(slot.fecha);
-												const slotEnd = slot.hora_fin ? new Date(slot.hora_fin) : null;
-												const fechaFormateada = formatDateLabelFromDate(slotStart);
-												const horaInicio = slotStart.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-												const horaFin = slotEnd ? slotEnd.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
-												const isAvailable = (slot.cupos_ocupados ?? 0) < (slot.cupos_totales ?? 1);
-												const hasCitas = slot.citas && slot.citas.length > 0;
-												const nowMs = Date.now();
-												const marginMs = 30 * 60 * 1000; // 30 minutos
-												const isTooSoonOrPast = slotStart.getTime() <= (nowMs + marginMs);
-												const isSelectable = isAvailable && !isTooSoonOrPast;
-												return (
-													<div
-														key={slot.id}
-														onClick={() => isSelectable && setSelectedSlotId(slot.id)}
-														className={`p-3 border rounded ${isSelectable ? 'cursor-pointer hover:bg-white' : 'cursor-not-allowed'} transition-colors ${
-															selectedSlotId === slot.id 
-																? 'border-green-500 bg-green-50' 
-																: isSelectable 
-																	? 'border-gray-300' 
-																	: 'border-red-300 bg-red-50'
-														}`}
-													>
-														<div className="flex justify-between items-center">
-															<div>
-																<div className="font-medium">{fechaFormateada}</div>
-																<div className="text-sm text-gray-600">{horaInicio}{horaFin ? ` - ${horaFin}` : ''}</div>
-																{hasCitas ? (
-																	<div className="text-xs text-red-600 mt-1">
-																		<div className="font-medium">Reservado</div>
-																		{slot.citas.map((cita: any) => (
-																			<div key={cita.id} className="mt-1">
-																				<div>{cita.servicio?.nombre}</div>
-																				<div className="text-gray-500">{cita.jardin?.nombre}</div>
-																			</div>
-																		))}
-																	</div>
-																) : isTooSoonOrPast ? (
-																	<div className="text-xs text-gray-600 mt-1">
-																		Horario no disponible (hora pasada o muy próxima)
-																	</div>
-																) : (
-																	<div className="text-xs text-gray-500 mt-1">
-																		{slot.cupos_totales - (slot.cupos_ocupados || 0)} cupos disponibles
-																	</div>
-																)}
-															</div>
-														</div>
-													</div>
-												);
-											})}
-									</div>
-									) : (
-										<div className="text-center p-4 text-gray-500 border rounded bg-gray-50">
-											No hay horarios disponibles para seleccionar
-										</div>
-									)}
-								</div>
-							)}
+							{/* (lista duplicada eliminada) */}
 
 							{/* Botón Reservar */}
 							{selectedSlotId && (

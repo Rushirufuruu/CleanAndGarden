@@ -3307,8 +3307,21 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
       },
       include: {
         servicio: { select: { id: true, nombre: true, duracion_minutos: true } },
-        jardin: { select: { id: true, nombre: true } },
-        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } }
+        jardin: { 
+          include: { 
+            direccion: { 
+              include: { 
+                comuna: { 
+                  include: { 
+                    region: true
+                  }
+                } 
+              } 
+            } 
+          }
+        },
+        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
+        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } }
       },
       orderBy: { fecha_hora: 'asc' }
     });

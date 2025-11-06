@@ -138,7 +138,7 @@ export default function AgendamientosPage() {
       if (d.calle) parts.push(d.calle)
       if (d.numero) parts.push(String(d.numero))
       if (d.comuna?.nombre) parts.push(d.comuna.nombre)
-      if (d.region?.nombre) parts.push(d.region.nombre)
+      if (d.comuna?.region?.nombre) parts.push(d.comuna.region.nombre)
       const txt = parts.join(', ')
       if (txt) return txt
     }
@@ -149,7 +149,8 @@ export default function AgendamientosPage() {
   }
 
   const getTecnicoName = (c: any) => {
-    const t = c.tecnico ?? c.jardinero ?? c.usuario_tecnico ?? c.usuario_asignado ?? null
+    // soportar varias formas en las que el servidor puede devolver el técnico
+    const t = c.tecnico ?? c.jardinero ?? c.usuario_tecnico ?? c.usuario_asignado ?? c.usuario_cita_tecnico_idTousuario ?? null
     if (t) {
       const full = [t.nombre, t.apellido].filter(Boolean).join(' ')
       if (full) return full
@@ -159,6 +160,9 @@ export default function AgendamientosPage() {
     if (c.jardinero_nombre) return c.jardinero_nombre
     return '—'
   }
+
+  // Componente interno: intenta cargar la dirección del jardín por fallback
+  // Removido, ahora la dirección viene incluida en la cita
 
   return (
     <div className="min-h-screen bg-[#fefaf2] py-8 px-4">
@@ -205,6 +209,7 @@ export default function AgendamientosPage() {
                   </div>
                   {expanded && (
                     <div className="mt-3 text-sm text-gray-700 space-y-1">
+                      {/* La dirección ahora viene incluida en la cita */}
                       <div><strong>Cliente:</strong> {getClientName(c)}</div>
                       <div><strong>Servicio:</strong> {c.servicio?.nombre ?? '—'}</div>
                       <div><strong>Jardín:</strong> {c.jardin?.nombre ?? '—'}</div>
