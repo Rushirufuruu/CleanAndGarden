@@ -24,6 +24,9 @@ import jwt from "jsonwebtoken";
 import { createServer } from 'http';
 import { ChatWebSocket } from './lib/websocket';
 
+// Importación de librería webpay
+import { WebpayPlus, Options, Environment } from "transbank-sdk";
+
 declare global {
   // eslint-disable-next-line no-var
   var chatWebSocketInstance: import('./lib/websocket').ChatWebSocket | undefined;
@@ -39,6 +42,20 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser());
+
+// ==========================================
+//  WEBPAY - SANDBOX CONFIG (SDK v6.1.0)
+// ==========================================
+
+const webpayTx = new WebpayPlus.Transaction(
+  new Options(
+    process.env.WEBPAY_COMMERCE || "597055555532",
+    process.env.WEBPAY_API_KEY || "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C",
+    Environment.Integration
+  )
+);
+
+
 
 // Middleware que protege rutas privadas (como /profile)
 function authMiddleware(req: Request, res: Response, next: any) {
@@ -4548,5 +4565,39 @@ app.get('/public/jardineros', async (_req: Request, res: Response) => {
   }
 })
 
+
+app.post("/payments/webpay/create", async (req, res) => {
+  try {
+    const { buyOrder, sessionId, amount, returnUrl } = req.body;
+
+    const response = await webpayTx.create(
+      buyOrder || `order-${Date.now()}`,
+      sessionId || `session-${Date.now()}`,
+      amount || 1000,
+      returnUrl || "http://localhost:3000/webpay/return"
+    );
+
+    res.json({
+      url: response.url,
+      token: response.token,
+    });
+  } catch (err: any) {
+    console.error("[Webpay create]", err);
+    res.status(500).json({ error: "Error creando transacción", detail: err.message });
+  }
+});
+
+app.post("/payments/webpay/commit", async (req, res) => {
+  try {
+    const { token_ws } = req.body;
+    if (!token_ws) return res.status(400).json({ error: "Falta token_ws" });
+
+    const result = await webpayTx.commit(token_ws);
+    res.json(result);
+  } catch (err: any) {
+    console.error("[Webpay commit]", err);
+    res.status(500).json({ error: "Error confirmando transacción", detail: err.message });
+  }
+});
 
 

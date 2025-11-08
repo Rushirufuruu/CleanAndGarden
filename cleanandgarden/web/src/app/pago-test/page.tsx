@@ -1,9 +1,9 @@
 "use client"
 
-import React, { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? ''
+const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 export default function PagoTestPage() {
   const [loading, setLoading] = useState(true)
@@ -11,92 +11,123 @@ export default function PagoTestPage() {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
+  // Cargar citas del cliente autenticado
   useEffect(() => {
     let mounted = true
     const load = async () => {
       setLoading(true)
       try {
-        const res = await fetch(`${API}/citas/mis`, { credentials: 'include' })
+        const res = await fetch(`${API}/citas/mis`, { credentials: "include" })
         if (res.status === 401) {
           if (!mounted) return
-          setError('No autenticado. Por favor inicia sesión.')
+          setError("No autenticado. Por favor inicia sesión.")
           setCitas([])
           return
         }
-        if (!res.ok) throw new Error('Error cargando citas')
+        if (!res.ok) throw new Error("Error cargando citas")
         const body = await res.json()
         const items = Array.isArray(body) ? body : body?.data ?? []
         if (!mounted) return
         setCitas(items)
       } catch (err: any) {
         if (!mounted) return
-        setError(err?.message ?? 'Error')
+        setError(err?.message ?? "Error")
       } finally {
         if (!mounted) return
         setLoading(false)
       }
     }
     load()
-    return () => { mounted = false }
+    return () => {
+      mounted = false
+    }
   }, [])
 
-  const startPago = async (citaId: number) => {
+  // Inicia el flujo Webpay (sandbox)
+  const startPagoWebpay = async (cita: any) => {
     try {
-      const res = await fetch(`${API}/pago/init`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cita_id: citaId }) })
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}))
-        alert('Error iniciando pago: ' + (b?.error ?? res.statusText))
-        return
-      }
-      const body = await res.json()
-      // body should include url and token (or raw)
-      const url = body.url ?? body.raw?.url ?? null
-      const token = body.token ?? body.raw?.token_ws ?? body.raw?.token ?? null
-      if (!url || !token) {
-        alert('Respuesta incompleta del servidor. Mira consola.')
-        console.debug('pago/init response', body)
+      const monto = Number(cita.precio_aplicado || 0)
+      if (!monto || monto <= 0) {
+        alert("Precio inválido.")
         return
       }
 
-      // crear form y submit automático (POST token_ws)
-      const form = document.createElement('form')
-      form.method = 'POST'
+      const res = await fetch(`${API}/payments/webpay/create`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buyOrder: `cita-${cita.id}`,
+          sessionId: `usuario-${cita.usuario_id}`,
+          amount: monto,
+          returnUrl: "http://localhost:3000/pago-test" // mismo front como retorno
+        })
+      })
+
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        alert("Error iniciando pago: " + (b?.error ?? res.statusText))
+        return
+      }
+
+      const body = await res.json()
+      const url = body.url ?? body.raw?.url
+      const token = body.token ?? body.raw?.token_ws ?? body.raw?.token
+      if (!url || !token) {
+        alert("Respuesta incompleta del servidor. Mira consola.")
+        console.debug("Respuesta Webpay:", body)
+        return
+      }
+
+      // Crear formulario y enviarlo automáticamente (POST token_ws)
+      const form = document.createElement("form")
+      form.method = "POST"
       form.action = url
-      const input = document.createElement('input')
-      input.type = 'hidden'
-      input.name = 'token_ws'
+      const input = document.createElement("input")
+      input.type = "hidden"
+      input.name = "token_ws"
       input.value = token
       form.appendChild(input)
       document.body.appendChild(form)
       form.submit()
     } catch (err) {
-      console.error('startPago error', err)
-      alert('Error de conexión al iniciar pago')
+      console.error("Error en startPagoWebpay:", err)
+      alert("Error de conexión al iniciar pago.")
     }
   }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="mx-auto max-w-3xl rounded bg-white p-6 shadow">
-        <h1 className="text-xl font-bold mb-4">Prueba de pago (Webpay integración)</h1>
-        <p className="text-sm text-gray-600 mb-4">Esta página inicia el flujo real de Webpay (integración). Usa las tarjetas de prueba en ambiente de integración.</p>
+        <h1 className="text-xl font-bold mb-4">Prueba de pago con Webpay (sandbox)</h1>
+        <p className="text-sm text-gray-600 mb-4">
+          Esta página inicia el flujo real de Webpay en modo integración. Usa las tarjetas de prueba
+          publicadas por Transbank.
+        </p>
 
         {loading ? (
           <div>Cargando...</div>
         ) : error ? (
           <div className="text-red-600">{error}</div>
         ) : citas.length === 0 ? (
-          <div>No tienes citas.</div>
+          <div>No tienes citas pendientes.</div>
         ) : (
           <div className="space-y-4">
-            {citas.map((c: any) => (
-              <div key={c.id} className="p-4 border rounded flex justify-between items-center">
+            {citas.map((cita: any) => (
+              <div key={cita.id} className="p-4 border rounded">
                 <div>
-                  <div className="font-medium">{c.servicio?.nombre ?? 'Servicio'}</div>
-                  <div className="text-sm text-gray-600">Id: {c.id} • Precio: {c.precio_aplicado ?? c.servicio?.precio_clp ?? '0'}</div>
+                  <div className="font-medium">{cita.servicio?.nombre ?? "Servicio"}</div>
+                  <div className="text-sm text-gray-600">
+                    ID: {cita.id} • Precio: ${cita.precio_aplicado ?? 0}
+                  </div>
                 </div>
-                <div>
-                  <button onClick={() => startPago(Number(c.id))} className="rounded bg-[#2E5430] px-3 py-1 text-white">Pagar</button>
+                <div className="mt-3">
+                  <button
+                    onClick={() => startPagoWebpay(cita)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                  >
+                    Pagar con Webpay
+                  </button>
                 </div>
               </div>
             ))}

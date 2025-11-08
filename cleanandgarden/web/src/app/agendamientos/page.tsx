@@ -215,6 +215,7 @@ export default function AgendamientosPage() {
                       <div><strong>Jardín:</strong> {c.jardin?.nombre ?? '—'}</div>
                       <div><strong>Dirección:</strong> {getDireccionText(c)}</div>
                       <div><strong>Jardinero:</strong> {getTecnicoName(c)}</div>
+                      <div><strong>Precio:</strong> {c.precio_aplicado ? `$${Number(c.precio_aplicado).toLocaleString('es-CL')}` : '—'}</div>
                       <div><strong>Estado:</strong> {c.estado ?? '—'}</div>
                       {c.notas_cliente && <div><strong>Notas:</strong> {c.notas_cliente}</div>}
                       { (c.estado === 'pendiente' || c.estado === 'confirmada') && canCancel(c) && (
