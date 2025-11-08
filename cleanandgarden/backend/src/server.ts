@@ -3338,7 +3338,8 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
           }
         },
         usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
-        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } }
+        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
+        pago: { select: { id: true, metodo: true, estado: true, monto_clp: true, creado_en: true, flow_order_id: true, flow_status: true } }
       },
       orderBy: { fecha_hora: 'asc' }
     });
@@ -3350,6 +3351,105 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+
+// Obtener citas asignadas al jardinero/técnico autenticado
+app.get('/citas/jardinero', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const tecnicoId = Number(user?.id);
+    const userRole = user?.rol?.codigo || user?.rol;
+
+    // Verificar que sea jardinero o técnico
+    if (userRole !== 'jardinero' && userRole !== 'tecnico') {
+      return res.status(403).json({ error: 'Acceso denegado. Solo para jardineros/técnicos.' });
+    }
+
+    if (!tecnicoId) {
+      return res.status(400).json({ error: 'Técnico no identificado' });
+    }
+
+    // Obtener todas las citas asignadas al técnico (pasadas y futuras)
+    const citas = await prisma.cita.findMany({
+      where: {
+        tecnico_id: BigInt(tecnicoId)
+      },
+      select: {
+        id: true,
+        fecha_hora: true,
+        duracion_minutos: true,
+        estado: true,
+        precio_aplicado: true,
+        notas_cliente: true,
+        motivo_cancelacion: true,
+        notas_cancelacion: true,
+        cancelada_por_usuario_id: true,
+        cancelada_por_rol: true,
+        usuario_cita_cancelada_por_usuario_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true
+          }
+        },
+        servicio: {
+          select: {
+            id: true,
+            nombre: true,
+            duracion_minutos: true
+          }
+        },
+        jardin: {
+          select: {
+            id: true,
+            nombre: true,
+            direccion: {
+              select: {
+                comuna: {
+                  select: {
+                    region: {
+                      select: {
+                        nombre: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        usuario_cita_cliente_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            email: true,
+            telefono: true
+          }
+        },
+        pago: {
+          select: {
+            id: true,
+            metodo: true,
+            estado: true,
+            monto_clp: true,
+            creado_en: true
+          },
+          where: {
+            estado: 'aprobado'
+          }
+        }
+      },
+      orderBy: [
+        { fecha_hora: 'desc' } // Más recientes primero
+      ]
+    });
+
+    res.json(toJSONSafe(citas));
+  } catch (err) {
+    console.error('Error al obtener citas del jardinero:', err);
+    res.status(500).json({ error: 'Error interno al obtener citas' });
+  }
+});
 
 // Cancelar una cita por parte del cliente (o admin). Regla: solo se puede cancelar hasta las 12:00 del día anterior.
 app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Response) => {
@@ -3365,10 +3465,11 @@ app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Respons
     const cita = await prisma.cita.findUnique({ where: { id: citaId } });
     if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
 
-    // Solo el cliente que reservó o admin puede cancelar
+    // Solo el cliente que reservó, el jardinero asignado o admin puede cancelar
     const isOwner = Number(cita.cliente_id) === userId;
+    const isAssignedTecnico = Number(cita.tecnico_id) === userId;
     const isAdmin = (user?.rol?.codigo === 'admin') || (user?.rol === 'admin');
-    if (!isOwner && !isAdmin) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
+    if (!isOwner && !isAssignedTecnico && !isAdmin) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
 
     // Verificar estado actual
     if (!['pendiente', 'confirmada'].includes(cita.estado)) {
@@ -4593,6 +4694,58 @@ app.post("/payments/webpay/commit", async (req, res) => {
     if (!token_ws) return res.status(400).json({ error: "Falta token_ws" });
 
     const result = await webpayTx.commit(token_ws);
+
+    // Si la transacción fue autorizada, insertar pago en BD y actualizar cita
+    if (result.status === 'AUTHORIZED') {
+      try {
+        // Extraer cita_id del buy_order (formato: cita-{id})
+        const buyOrderParts = result.buy_order?.split('-');
+        if (buyOrderParts && buyOrderParts[0] === 'cita' && buyOrderParts[1]) {
+          const citaId = BigInt(buyOrderParts[1]);
+
+          // Buscar la cita
+          const cita = await prisma.cita.findUnique({
+            where: { id: citaId },
+            select: { id: true, cliente_id: true, estado: true, precio_aplicado: true }
+          });
+
+          if (cita) {
+            // Insertar el pago
+            const pago = await prisma.pago.create({
+              data: {
+                cita_id: citaId,
+                usuario_id: cita.cliente_id,
+                metodo: 'webpay', // Método de pago Webpay
+                estado: 'aprobado',
+                monto_clp: result.amount,
+                flow_order_id: result.buy_order,
+                flow_token: token_ws,
+                flow_status: result.status,
+                flow_payload: result
+              }
+            });
+
+            // Actualizar estado de la cita si estaba pendiente
+            if (cita.estado === 'pendiente') {
+              await prisma.cita.update({
+                where: { id: citaId },
+                data: { estado: 'confirmada' }
+              });
+            }
+
+            console.log(`[Webpay commit] Pago insertado: ${pago.id}, Cita actualizada: ${citaId}`);
+          } else {
+            console.error(`[Webpay commit] Cita no encontrada: ${citaId}`);
+          }
+        } else {
+          console.error(`[Webpay commit] Formato buy_order inválido: ${result.buy_order}`);
+        }
+      } catch (dbErr: any) {
+        console.error("[Webpay commit] Error en BD:", dbErr);
+        // No fallar la respuesta, solo loggear
+      }
+    }
+
     res.json(result);
   } catch (err: any) {
     console.error("[Webpay commit]", err);

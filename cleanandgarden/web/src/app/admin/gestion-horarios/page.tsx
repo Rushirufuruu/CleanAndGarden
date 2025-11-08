@@ -298,6 +298,59 @@ export default function GestionHorarios() {
     }
   };
 
+  const cancelarCita = async (citaId: number) => {
+    // Pedir confirmación con motivo opcional
+    const { value: motivo } = await Swal.fire({
+      title: '¿Cancelar esta cita?',
+      text: 'Esta acción no se puede deshacer. El cliente será notificado.',
+      icon: 'warning',
+      input: 'textarea',
+      inputLabel: 'Motivo de cancelación (opcional)',
+      inputPlaceholder: 'Ej: Conflicto de horario, mantenimiento, etc.',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Sí, cancelar cita',
+      cancelButtonText: 'No, mantener cita'
+    });
+
+    if (motivo === undefined) return; // Usuario canceló
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cita/${citaId}/cancelar`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          motivo_cancelacion: motivo || null,
+          notas_cancelacion: null
+        })
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Error al cancelar la cita');
+      }
+
+      // Mostrar éxito y recargar datos
+      await Swal.fire({
+        icon: 'success',
+        title: 'Cita cancelada',
+        text: 'La cita ha sido cancelada exitosamente.',
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+      // Recargar los datos para reflejar los cambios
+      cargarGuardados(mesActual);
+      setModalOpen(false); // Cerrar modal si estaba abierto
+
+    } catch (err: any) {
+      console.error('Error al cancelar cita:', err);
+      Swal.fire('Error', err?.message || 'Error al cancelar la cita', 'error');
+    }
+  };
+
 
   // ✏️ Editar horario (hora de inicio y fin)
   const editarSlot = async (slot: Slot) => {
@@ -436,6 +489,16 @@ export default function GestionHorarios() {
                     <div className="text-sm text-gray-600">Fecha y hora: {c.fecha_hora ? new Date(c.fecha_hora).toLocaleString('es-CL') : '—'}</div>
                     <div className="text-sm text-gray-600">Estado: {c.estado}</div>
                     {c.notas_cliente && <div className="text-sm text-gray-700 mt-1">Notas: {c.notas_cliente}</div>}
+                    {(c.estado === 'confirmada' || c.estado === 'pendiente') && (
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          onClick={() => cancelarCita(c.id)}
+                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+                        >
+                          Cancelar Cita
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
