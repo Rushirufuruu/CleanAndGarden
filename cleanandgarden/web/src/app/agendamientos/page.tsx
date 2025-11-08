@@ -218,9 +218,16 @@ export default function AgendamientosPage() {
                       <div><strong>Precio:</strong> {c.precio_aplicado ? `$${Number(c.precio_aplicado).toLocaleString('es-CL')}` : '—'}</div>
                       <div><strong>Estado:</strong> {c.estado ?? '—'}</div>
                       {c.notas_cliente && <div><strong>Notas:</strong> {c.notas_cliente}</div>}
-                      { (c.estado === 'pendiente' || c.estado === 'confirmada') && canCancel(c) && (
+                      { (c.estado === 'pendiente' || c.estado === 'confirmada') && (
                         <div className="mt-2">
-                          <button onClick={() => handleCancel(id)} className="rounded bg-red-600 px-3 py-1 text-white">Cancelar cita</button>
+                          <button 
+                            onClick={() => canCancel(c) ? handleCancel(id) : null}
+                            disabled={!canCancel(c)}
+                            title={!canCancel(c) ? "Ya no puedes cancelar la hora. Si necesitas cancelarla o hacer alguna modificación, habla con un Administrador por mensaje" : "Cancelar cita"}
+                            className={`rounded px-3 py-1 text-white ${canCancel(c) ? 'bg-red-600' : 'bg-gray-400 cursor-not-allowed'}`}
+                          >
+                            Cancelar cita
+                          </button>
                         </div>
                       )}
 

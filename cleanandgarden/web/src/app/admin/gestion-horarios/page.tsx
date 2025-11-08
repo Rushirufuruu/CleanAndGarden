@@ -298,6 +298,26 @@ export default function GestionHorarios() {
     }
   };
 
+
+  const puedeMostrarBotonCancelar = (cita: any) => {
+    // Mostrar botón si está en estado pendiente o confirmada
+    return ['pendiente', 'confirmada'].includes(cita.estado)
+  }
+
+  const puedeCancelarCita = (cita: any) => {
+    // Solo permitir cancelar si está en estado pendiente o confirmada
+    if (!['pendiente', 'confirmada'].includes(cita.estado)) {
+      return false
+    }
+
+    // Validar plazo de cancelación: hasta las 12:00 del día anterior
+    const fechaCita = new Date(cita.fecha_hora)
+    const deadline = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate() - 1, 12, 0, 0, 0)
+    const ahora = new Date()
+
+    return ahora <= deadline
+  }
+
   const cancelarCita = async (citaId: number) => {
     // Pedir confirmación con motivo opcional
     const { value: motivo } = await Swal.fire({
@@ -489,11 +509,17 @@ export default function GestionHorarios() {
                     <div className="text-sm text-gray-600">Fecha y hora: {c.fecha_hora ? new Date(c.fecha_hora).toLocaleString('es-CL') : '—'}</div>
                     <div className="text-sm text-gray-600">Estado: {c.estado}</div>
                     {c.notas_cliente && <div className="text-sm text-gray-700 mt-1">Notas: {c.notas_cliente}</div>}
-                    {(c.estado === 'confirmada' || c.estado === 'pendiente') && (
+                    {puedeMostrarBotonCancelar(c) && (
                       <div className="mt-3 flex justify-end">
                         <button
-                          onClick={() => cancelarCita(c.id)}
-                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+                          onClick={() => puedeCancelarCita(c) ? cancelarCita(c.id) : null}
+                          disabled={!puedeCancelarCita(c)}
+                          title={!puedeCancelarCita(c) ? "Ya no puedes cancelar la hora. Si necesitas cancelarla o hacer alguna modificación, habla con un Administrador por mensaje" : "Cancelar cita"}
+                          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                            puedeCancelarCita(c)
+                              ? 'bg-red-500 hover:bg-red-600 text-white'
+                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          }`}
                         >
                           Cancelar Cita
                         </button>

@@ -345,6 +345,56 @@ export default function BookAppointmentPage() {
 		}
 	}
 
+	// Eliminar jardín
+	async function deleteGarden(gardenId: number) {
+		const confirm = await Swal.fire({
+			title: '¿Eliminar jardín?',
+			text: 'Esta acción no se puede deshacer. Solo se pueden eliminar jardines que nunca hayan sido utilizados en ningún agendamiento. ¿Estás seguro?',
+			icon: 'warning',
+			showCancelButton: true,
+			confirmButtonColor: '#d33',
+			cancelButtonColor: '#3085d6',
+			confirmButtonText: 'Sí, eliminar',
+			cancelButtonText: 'Cancelar'
+		})
+
+		if (!confirm.isConfirmed) return
+
+		try {
+			const res = await fetch(`${API}/jardines/${gardenId}`, { 
+				method: 'DELETE', 
+				credentials: 'include' 
+			})
+			
+			if (!res.ok) {
+				const error = await res.json()
+				throw new Error(error.error || 'No se pudo eliminar el jardín')
+			}
+
+			// recargar jardines
+			try {
+				const gRes = await fetch(`${API}/jardines`, { credentials: 'include' })
+				if (gRes.ok) {
+					const gBody = await gRes.json()
+					const items = gBody?.jardines ?? gBody?.data ?? gBody ?? []
+					setGardens(Array.isArray(items) ? items : [])
+				}
+			} catch (err) {
+				console.debug('reload gardens failed', err)
+			}
+
+			// Si el jardín eliminado era el seleccionado, deseleccionar
+			if (selectedGardenId === gardenId) {
+				setSelectedGardenId(null)
+			}
+
+			Swal.fire('Eliminado', 'El jardín ha sido eliminado correctamente', 'success')
+		} catch (err: any) {
+			console.error(err)
+			Swal.fire('Error', err?.message ?? 'Error eliminando jardín', 'error')
+		}
+	}
+
 		// cargar slots cuando cambia el jardinero seleccionado
 		useEffect(() => {
 			if (selectedTecnicoId) {
@@ -744,6 +794,13 @@ export default function BookAppointmentPage() {
 															className="px-3 py-1 rounded text-sm bg-yellow-500 text-white"
 														>
 															Editar
+														</button>
+														<button 
+															type="button" 
+															onClick={() => deleteGarden(garden.id)} 
+															className="px-3 py-1 rounded text-sm bg-red-600 text-white"
+														>
+															Eliminar
 														</button>
 													</div>
 												</>

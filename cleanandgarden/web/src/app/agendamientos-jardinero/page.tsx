@@ -50,6 +50,14 @@ interface Cita {
     monto_clp: number
     metodo: string
   }>
+  visita?: {
+    id: number
+    insumos: any // Puede ser array o string JSON
+    estado: string
+    resumen: string | null
+    inicio: string | null
+    fin: string | null
+  }
 }
 
 type FiltroFecha = 'todos' | 'hoy' | 'semana' | 'mes'
@@ -63,6 +71,15 @@ export default function AgendamientosJardineroPage() {
   const [error, setError] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
+
+  // Estado para el modal de completar cita
+  const [modalCompletarOpen, setModalCompletarOpen] = useState(false)
+  const [citaACompletar, setCitaACompletar] = useState<Cita | null>(null)
+  const [productosDisponibles, setProductosDisponibles] = useState<Array<{id: number, nombre: string, descripcion?: string, precio_unitario: number, stock_actual?: number}>>([])
+  const [productosAgregados, setProductosAgregados] = useState<Array<{producto_id: number, nombre: string, precio_unitario: number, cantidad: number}>>([])
+  const [productoSeleccionado, setProductoSeleccionado] = useState('')
+  const [cantidadSeleccionada, setCantidadSeleccionada] = useState('1')
+  const [completandoCita, setCompletandoCita] = useState(false)
 
   // Filtros
   const [filtroFecha, setFiltroFecha] = useState<FiltroFecha>('todos')
@@ -247,6 +264,25 @@ export default function AgendamientosJardineroPage() {
     return 'Sistema'
   }
 
+  const puedeMostrarBotonCancelar = (cita: Cita) => {
+    // Mostrar botón si está en estado pendiente o confirmada
+    return ['pendiente', 'confirmada'].includes(cita.estado)
+  }
+
+  const puedeCancelarCita = (cita: Cita) => {
+    // Solo permitir cancelar si está en estado pendiente o confirmada
+    if (!['pendiente', 'confirmada'].includes(cita.estado)) {
+      return false
+    }
+
+    // Validar plazo de cancelación: hasta las 12:00 del día anterior
+    const fechaCita = new Date(cita.fecha_hora)
+    const deadline = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate() - 1, 12, 0, 0, 0)
+    const ahora = new Date()
+
+    return ahora <= deadline
+  }
+
   const cancelarCita = async (citaId: number) => {
     // Pedir confirmación con motivo opcional
     const { value: motivo } = await Swal.fire({
@@ -303,6 +339,128 @@ export default function AgendamientosJardineroPage() {
       });
     }
   };
+
+  // Funciones para completar cita con insumos
+  const abrirModalCompletar = async (cita: Cita) => {
+    setCitaACompletar(cita)
+    setProductosAgregados([])
+    setProductoSeleccionado('')
+    setCantidadSeleccionada('1')
+    setModalCompletarOpen(true)
+
+    // Cargar productos disponibles
+    try {
+      const res = await fetch(`${API}/productos`, { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setProductosDisponibles(data.productos || [])
+      }
+    } catch (err) {
+      console.error('Error cargando productos:', err)
+    }
+  }
+
+  const agregarProducto = () => {
+    if (!productoSeleccionado || !cantidadSeleccionada) {
+      Swal.fire('Error', 'Debes seleccionar un producto y cantidad', 'error')
+      return
+    }
+
+    const productoId = parseInt(productoSeleccionado)
+    const cantidad = parseInt(cantidadSeleccionada)
+    const producto = productosDisponibles.find(p => p.id === productoId)
+
+    if (!producto) {
+      Swal.fire('Error', 'Producto no encontrado', 'error')
+      return
+    }
+
+    if (cantidad <= 0) {
+      Swal.fire('Error', 'La cantidad debe ser mayor a 0', 'error')
+      return
+    }
+
+    if (producto.stock_actual !== null && producto.stock_actual !== undefined && producto.stock_actual < cantidad) {
+      Swal.fire('Error', `Stock insuficiente. Disponible: ${producto.stock_actual}`, 'error')
+      return
+    }
+
+    // Verificar si el producto ya está agregado
+    const existente = productosAgregados.find(p => p.producto_id === productoId)
+    if (existente) {
+      setProductosAgregados(productosAgregados.map(p => 
+        p.producto_id === productoId 
+          ? { ...p, cantidad: p.cantidad + cantidad }
+          : p
+      ))
+    } else {
+      setProductosAgregados([...productosAgregados, {
+        producto_id: productoId,
+        nombre: producto.nombre,
+        precio_unitario: Number(producto.precio_unitario || 0),
+        cantidad: cantidad
+      }])
+    }
+
+    setProductoSeleccionado('')
+    setCantidadSeleccionada('1')
+  }
+
+  const quitarProducto = (productoId: number) => {
+    setProductosAgregados(productosAgregados.filter(p => p.producto_id !== productoId))
+  }
+
+  const completarCita = async () => {
+    if (!citaACompletar) return
+
+    setCompletandoCita(true)
+    try {
+      const res = await fetch(`${API}/cita/${citaACompletar.id}/completar`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productos: productosAgregados })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'No se pudo completar la cita')
+      }
+
+      // Recargar citas
+      try {
+        const gRes = await fetch(`${API}/citas/jardinero`, { credentials: 'include' })
+        if (gRes.ok) {
+          const gBody = await gRes.json()
+          const items = gBody?.citas ?? gBody?.data ?? gBody ?? []
+          setCitas(Array.isArray(items) ? items : [])
+        }
+      } catch (err) {
+        console.debug('reload citas failed', err)
+      }
+
+      setModalCompletarOpen(false)
+      setCitaACompletar(null)
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Cita completada',
+        text: 'La cita ha sido marcada como completada exitosamente.',
+        timer: 2000,
+        showConfirmButton: false
+      })
+
+    } catch (err: any) {
+      console.error('Error completando cita:', err)
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: err?.message || 'No se pudo completar la cita. Inténtalo de nuevo.'
+      })
+    } finally {
+      setCompletandoCita(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -522,14 +680,72 @@ export default function AgendamientosJardineroPage() {
                       </div>
                     )}
 
-                    {(cita.estado === 'confirmada' || cita.estado === 'pendiente') && (
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          onClick={() => cancelarCita(cita.id)}
-                          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                        >
-                          Cancelar Cita
-                        </button>
+                    {cita.estado === 'realizada' && cita.visita && (
+                      <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded text-sm">
+                        <div className="mb-2">
+                          <strong>✅ Cita completada</strong>
+                        </div>
+                        {cita.visita.resumen && (
+                          <div className="mb-2">
+                            <strong>Resumen:</strong> {cita.visita.resumen}
+                          </div>
+                        )}
+                        {cita.visita.insumos && (() => {
+                          try {
+                            const insumos = Array.isArray(cita.visita.insumos) ? cita.visita.insumos : JSON.parse(cita.visita.insumos as string);
+                            if (Array.isArray(insumos) && insumos.length > 0) {
+                              const totalInsumos = insumos.reduce((total: number, insumo: any) => 
+                                total + (parseFloat(insumo.precio) * parseInt(insumo.cantidad)), 0
+                              );
+                              return (
+                                <div>
+                                  <strong>Insumos utilizados:</strong>
+                                  <ul className="mt-1 ml-4 list-disc">
+                                    {insumos.map((insumo: any, index: number) => (
+                                      <li key={index}>
+                                        {insumo.nombre} - ${insumo.precio} x {insumo.cantidad} = ${(insumo.precio * insumo.cantidad).toFixed(2)}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  <div className="mt-2 font-semibold">
+                                    Total insumos: ${totalInsumos.toFixed(2)}
+                                  </div>
+                                </div>
+                              );
+                            }
+                          } catch (e) {
+                            // Si hay error parseando JSON, mostrar mensaje básico
+                            return <div><strong>Insumos:</strong> {String(cita.visita.insumos)}</div>;
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+
+                    {(puedeMostrarBotonCancelar(cita) || cita.estado === 'confirmada') && (
+                      <div className="mt-4 flex justify-end gap-2">
+                        {cita.estado === 'confirmada' && (
+                          <button
+                            onClick={() => abrirModalCompletar(cita)}
+                            className="px-4 py-2 rounded-lg font-medium transition-colors bg-green-500 hover:bg-green-600 text-white"
+                          >
+                            Completar Cita
+                          </button>
+                        )}
+                        {puedeMostrarBotonCancelar(cita) && (
+                          <button
+                            onClick={() => puedeCancelarCita(cita) ? cancelarCita(cita.id) : null}
+                            disabled={!puedeCancelarCita(cita)}
+                            title={!puedeCancelarCita(cita) ? "Ya no puedes cancelar la hora. Si necesitas cancelarla o hacer alguna modificación, habla con un Administrador por mensaje" : "Cancelar cita"}
+                            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                              puedeCancelarCita(cita)
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            }`}
+                          >
+                            Cancelar Cita
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -539,6 +755,99 @@ export default function AgendamientosJardineroPage() {
           )}
         </div>
       </div>
+
+      {/* Modal para completar cita */}
+      {modalCompletarOpen && citaACompletar && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">Completar Cita</h2>
+            
+            <div className="mb-4 p-4 bg-gray-50 rounded">
+              <h3 className="font-semibold">Detalles de la cita:</h3>
+              <p><strong>Servicio:</strong> {citaACompletar.servicio.nombre}</p>
+              <p><strong>Cliente:</strong> {citaACompletar.usuario_cita_cliente_idTousuario.nombre} {citaACompletar.usuario_cita_cliente_idTousuario.apellido}</p>
+              <p><strong>Fecha:</strong> {new Date(citaACompletar.fecha_hora).toLocaleString()}</p>
+              <p><strong>Precio base:</strong> ${citaACompletar.precio_aplicado || 0}</p>
+            </div>
+
+            <div className="mb-4">
+              <h3 className="font-semibold mb-2">Seleccionar Productos Utilizados</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+                <select
+                  value={productoSeleccionado}
+                  onChange={(e) => setProductoSeleccionado(e.target.value)}
+                  className="border rounded px-3 py-2"
+                >
+                  <option value="">Seleccionar producto</option>
+                  {productosDisponibles.map(producto => (
+                    <option key={producto.id} value={producto.id}>
+                      {producto.nombre} - ${Number(producto.precio_unitario || 0).toFixed(2)} 
+                      {producto.stock_actual !== null && producto.stock_actual !== undefined ? `(Stock: ${producto.stock_actual})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  placeholder="Cantidad"
+                  value={cantidadSeleccionada}
+                  onChange={(e) => setCantidadSeleccionada(e.target.value)}
+                  className="border rounded px-3 py-2"
+                  min="1"
+                />
+                <div></div>
+                <button
+                  onClick={agregarProducto}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                >
+                  Agregar
+                </button>
+              </div>
+            </div>
+
+            {productosAgregados.length > 0 && (
+              <div className="mb-4">
+                <h3 className="font-semibold mb-2">Productos seleccionados:</h3>
+                <div className="space-y-2">
+                  {productosAgregados.map((producto) => (
+                    <div key={producto.producto_id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                      <span>{producto.nombre} - ${producto.precio_unitario.toFixed(2)} x {producto.cantidad} = ${(producto.precio_unitario * producto.cantidad).toFixed(2)}</span>
+                      <button
+                        onClick={() => quitarProducto(producto.producto_id)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 p-2 bg-blue-50 rounded">
+                  <strong>Total productos: ${productosAgregados.reduce((total, producto) => total + (producto.precio_unitario * producto.cantidad), 0).toFixed(2)}</strong>
+                </div>
+                <div className="mt-1 p-2 bg-green-50 rounded">
+                  <strong>Total final: ${(citaACompletar.precio_aplicado || 0) + productosAgregados.reduce((total, producto) => total + (producto.precio_unitario * producto.cantidad), 0)}</strong>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setModalCompletarOpen(false)}
+                className="px-4 py-2 border rounded hover:bg-gray-100"
+                disabled={completandoCita}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={completarCita}
+                disabled={completandoCita}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded disabled:opacity-50"
+              >
+                {completandoCita ? 'Completando...' : 'Completar Cita'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

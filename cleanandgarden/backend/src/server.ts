@@ -1686,6 +1686,42 @@ app.put("/jardines/:id", authMiddleware, async (req, res) => {
   }
 });
 
+app.delete("/jardines/:id", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+
+    // Verificar que el jardín pertenece al usuario
+    const jardin = await prisma.jardin.findFirst({
+      where: { id: BigInt(id), cliente_id: BigInt(userData.id) }
+    });
+    if (!jardin) {
+      return res.status(404).json({ error: 'Jardín no encontrado' });
+    }
+
+    // Verificar si el jardín tiene alguna cita (en cualquier estado)
+    const totalCitas = await prisma.cita.count({
+      where: { jardin_id: BigInt(id) }
+    });
+
+    if (totalCitas > 0) {
+      return res.status(400).json({ error: 'No se puede eliminar el jardín porque tiene citas asociadas. Solo se pueden eliminar jardines que nunca hayan sido utilizados en agendamientos.' });
+    }
+
+    // Eliminar el jardín (ya no hay citas que eliminar)
+
+    // Eliminar el jardín
+    await prisma.jardin.delete({
+      where: { id: BigInt(id) }
+    });
+
+    res.json({ message: "Jardín eliminado correctamente" });
+  } catch (err: any) {
+    console.error("Error al eliminar jardín:", err);
+    res.status(500).json({ error: "Error interno al eliminar jardín" });
+  }
+});
+
 //--------------------------------------------------------------------
 // =======================================
 // ACTUALIZAR PERFIL (valida teléfono si jardinero)
@@ -3287,7 +3323,7 @@ app.post("/cita/reservar", async (req, res) => {
           tecnico_id: BigInt(slot.tecnico_id),
           fecha_hora: slot.hora_inicio,
           duracion_minutos: duracion_minutos ? Number(duracion_minutos) : 60,
-          estado: "pendiente",
+          estado: "confirmada",
           notas_cliente: notas_cliente ?? null,
           precio_aplicado: precio_aplicado !== undefined && precio_aplicado !== null ? Number(precio_aplicado) : undefined,
           nombre_servicio_snapshot: undefined,
@@ -3436,6 +3472,16 @@ app.get('/citas/jardinero', authMiddleware, async (req: Request, res: Response) 
           },
           where: {
             estado: 'aprobado'
+          }
+        },
+        visita: {
+          select: {
+            id: true,
+            insumos: true,
+            estado: true,
+            resumen: true,
+            inicio: true,
+            fin: true
           }
         }
       },
@@ -4750,6 +4796,246 @@ app.post("/payments/webpay/commit", async (req, res) => {
   } catch (err: any) {
     console.error("[Webpay commit]", err);
     res.status(500).json({ error: "Error confirmando transacción", detail: err.message });
+  }
+});
+
+// Completar cita con insumos
+app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+    const { insumos } = req.body;
+
+    // Verificar que la cita existe y pertenece al técnico
+    const cita = await prisma.cita.findFirst({
+      where: { 
+        id: BigInt(id), 
+        tecnico_id: BigInt(userData.id),
+        estado: 'confirmada'
+      }
+    });
+
+    if (!cita) {
+      return res.status(404).json({ error: 'Cita no encontrada o no puedes completarla' });
+    }
+
+    // Calcular el total de insumos
+    let totalInsumos = 0;
+    if (insumos && Array.isArray(insumos)) {
+      totalInsumos = insumos.reduce((total: number, insumo: any) => {
+        return total + (parseFloat(insumo.precio) * parseInt(insumo.cantidad));
+      }, 0);
+    }
+
+    // Actualizar el precio aplicado de la cita sumando los insumos
+    const precioBase = cita.precio_aplicado ? Number(cita.precio_aplicado) : 0;
+    const nuevoPrecioTotal = precioBase + totalInsumos;
+
+    // Crear o actualizar la visita
+    const visitaExistente = await prisma.visita.findFirst({
+      where: { cita_id: BigInt(id) }
+    });
+
+    if (visitaExistente) {
+      // Actualizar visita existente
+      await prisma.visita.update({
+        where: { id: visitaExistente.id },
+        data: {
+          insumos: insumos && insumos.length > 0 ? insumos : null,
+          estado: 'completada',
+          fin: new Date(),
+          fecha_actualizacion: new Date()
+        }
+      });
+    } else {
+      // Crear nueva visita
+      await prisma.visita.create({
+        data: {
+          cita_id: BigInt(id),
+          tecnico_id: BigInt(userData.id),
+          insumos: insumos && insumos.length > 0 ? insumos : null,
+          estado: 'completada',
+          inicio: new Date(cita.fecha_hora),
+          fin: new Date(),
+          resumen: `Servicio completado con ${insumos?.length || 0} insumos agregados`
+        }
+      });
+    }
+
+    // Actualizar el estado de la cita a 'realizada' y el precio total
+    await prisma.cita.update({
+      where: { id: BigInt(id) },
+      data: {
+        estado: 'realizada',
+        precio_aplicado: nuevoPrecioTotal,
+        fecha_actualizacion: new Date()
+      }
+    });
+
+    res.json({ 
+      message: "Cita completada exitosamente",
+      precio_total: nuevoPrecioTotal,
+      insumos_agregados: insumos?.length || 0
+    });
+
+  } catch (err: any) {
+    console.error("Error completando cita:", err);
+    res.status(500).json({ error: "Error interno al completar la cita" });
+  }
+});
+
+// Obtener lista de productos/insumos disponibles
+app.get("/productos", authMiddleware, async (req, res) => {
+  try {
+    const productos = await prisma.producto.findMany({
+      where: { activo: true },
+      select: {
+        id: true,
+        nombre: true,
+        descripcion: true,
+        precio_unitario: true,
+        stock_actual: true
+      },
+      orderBy: { nombre: 'asc' }
+    });
+
+    res.json({ productos: toJSONSafe(productos) });
+  } catch (err: any) {
+    console.error("Error obteniendo productos:", err);
+    res.status(500).json({ error: "Error interno al obtener productos" });
+  }
+});
+
+// Completar cita con productos
+app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+    const { productos } = req.body; // Array de { producto_id, cantidad }
+
+    // Verificar que la cita existe y pertenece al técnico
+    const cita = await prisma.cita.findFirst({
+      where: { 
+        id: BigInt(id), 
+        tecnico_id: BigInt(userData.id),
+        estado: 'confirmada'
+      }
+    });
+
+    if (!cita) {
+      return res.status(404).json({ error: 'Cita no encontrada o no puedes completarla' });
+    }
+
+    // Calcular el total de productos y validar stock
+    let totalProductos = 0;
+    const productosDetalle = [];
+
+    if (productos && Array.isArray(productos)) {
+      for (const item of productos) {
+        const producto = await prisma.producto.findUnique({
+          where: { id: BigInt(item.producto_id) }
+        });
+
+        if (!producto || !producto.activo) {
+          return res.status(400).json({ error: `Producto ${item.producto_id} no encontrado o inactivo` });
+        }
+
+        if (producto.stock_actual !== null && producto.stock_actual < item.cantidad) {
+          return res.status(400).json({ error: `Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock_actual}` });
+        }
+
+        const precioUnitario = producto.precio_unitario ? Number(producto.precio_unitario) : 0;
+        const subtotal = precioUnitario * item.cantidad;
+        totalProductos += subtotal;
+
+        productosDetalle.push({
+          producto_id: item.producto_id,
+          nombre: producto.nombre,
+          precio_unitario: precioUnitario,
+          cantidad: item.cantidad,
+          subtotal: subtotal
+        });
+      }
+    }
+
+    // Actualizar el precio aplicado de la cita sumando los productos
+    const precioBase = cita.precio_aplicado ? Number(cita.precio_aplicado) : 0;
+    const nuevoPrecioTotal = precioBase + totalProductos;
+
+    // Crear o actualizar la visita
+    const visitaExistente = await prisma.visita.findFirst({
+      where: { cita_id: BigInt(id) }
+    });
+
+    let visita;
+    if (visitaExistente) {
+      // Actualizar visita existente
+      visita = await prisma.visita.update({
+        where: { id: visitaExistente.id },
+        data: {
+          estado: 'completada',
+          fin: new Date(),
+          fecha_actualizacion: new Date()
+        }
+      });
+    } else {
+      // Crear nueva visita
+      visita = await prisma.visita.create({
+        data: {
+          cita_id: BigInt(id),
+          tecnico_id: BigInt(userData.id),
+          estado: 'completada',
+          inicio: new Date(cita.fecha_hora),
+          fin: new Date(),
+          resumen: `Servicio completado con ${productos?.length || 0} productos utilizados`
+        }
+      });
+    }
+
+    // Crear registros en visita_producto
+    if (productos && productos.length > 0) {
+      const visitaProductosData = productos.map((item: any) => ({
+        visita_id: visita.id,
+        producto_id: BigInt(item.producto_id),
+        cantidad: item.cantidad
+      }));
+
+      await prisma.visita_producto.createMany({
+        data: visitaProductosData
+      });
+
+      // Actualizar stock de productos
+      for (const item of productos) {
+        await prisma.producto.update({
+          where: { id: BigInt(item.producto_id) },
+          data: {
+            stock_actual: {
+              decrement: item.cantidad
+            }
+          }
+        });
+      }
+    }
+
+    // Actualizar el estado de la cita a 'realizada' y el precio total
+    await prisma.cita.update({
+      where: { id: BigInt(id) },
+      data: {
+        estado: 'realizada',
+        precio_aplicado: nuevoPrecioTotal,
+        fecha_actualizacion: new Date()
+      }
+    });
+
+    res.json({ 
+      message: "Cita completada exitosamente",
+      precio_total: nuevoPrecioTotal,
+      productos_utilizados: productosDetalle
+    });
+
+  } catch (err: any) {
+    console.error("Error completando cita:", err);
+    res.status(500).json({ error: "Error interno al completar la cita" });
   }
 });
 
