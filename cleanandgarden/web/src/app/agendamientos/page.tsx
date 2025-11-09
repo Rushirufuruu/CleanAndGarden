@@ -2,16 +2,26 @@
 
 import React, { useEffect, useState } from "react"
 import Swal from 'sweetalert2'
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 export default function AgendamientosPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [citas, setCitas] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  
+  // Estados para filtros y ordenamiento
+  const [estadoFilter, setEstadoFilter] = useState<string>('todas')
+  const [sortBy, setSortBy] = useState<string>('fecha_desc')
+  const [filteredCitas, setFilteredCitas] = useState<any[]>([])
+  const [paymentResult, setPaymentResult] = useState<any>(null)
+  
+  // Estado para modal de detalles de pago
+  const [paymentModalData, setPaymentModalData] = useState<any>(null)
 
   useEffect(() => {
     let mounted = true
@@ -44,6 +54,103 @@ export default function AgendamientosPage() {
     return () => { mounted = false }
   }, [])
 
+  // Procesar retorno de Webpay si hay token_ws en URL
+  useEffect(() => {
+    const tokenWs = searchParams.get('token_ws')
+    if (tokenWs && !paymentResult) {
+      const processPayment = async () => {
+        try {
+          const res = await fetch(`${API}/payments/webpay/commit`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token_ws: tokenWs })
+          })
+
+          if (!res.ok) {
+            const b = await res.json().catch(() => ({}))
+            setPaymentResult({ error: b?.error ?? res.statusText })
+            await Swal.fire('Error en el pago', `No se pudo procesar el pago: ${b?.error ?? res.statusText}`, 'error')
+            return
+          }
+
+          const result = await res.json()
+          setPaymentResult(result)
+
+          // Limpiar la URL
+          router.replace('/agendamientos', { scroll: false })
+
+          // Recargar citas después del pago exitoso
+          if (result.status === 'AUTHORIZED' || result.status === 'success') {
+            await Swal.fire({
+              title: '¡Pago exitoso!',
+              text: 'Tu pago ha sido procesado correctamente.',
+              icon: 'success',
+              timer: 2000,
+              showConfirmButton: false
+            })
+            
+            // Recargar las citas para mostrar el estado actualizado
+            setTimeout(() => {
+              window.location.reload()
+            }, 1000)
+          }
+
+        } catch (err: any) {
+          console.error("Error procesando pago:", err)
+          setPaymentResult({ error: err?.message ?? "Error de conexión" })
+          await Swal.fire('Error', 'Error de conexión al procesar el pago.', 'error')
+        }
+      }
+      processPayment()
+    }
+  }, [searchParams, paymentResult, router])
+
+  // Efecto para aplicar filtros y ordenamiento
+  useEffect(() => {
+    let filtered = [...citas]
+
+    // Aplicar filtro por estado
+    if (estadoFilter !== 'todas') {
+      filtered = filtered.filter(cita => cita.estado === estadoFilter)
+    }
+
+    // Aplicar ordenamiento
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'fecha_asc':
+          const dateA = parseDateFromCita(a)
+          const dateB = parseDateFromCita(b)
+          if (!dateA && !dateB) return 0
+          if (!dateA) return 1
+          if (!dateB) return -1
+          return dateA.getTime() - dateB.getTime()
+        
+        case 'fecha_desc':
+          const dateADesc = parseDateFromCita(a)
+          const dateBDesc = parseDateFromCita(b)
+          if (!dateADesc && !dateBDesc) return 0
+          if (!dateADesc) return 1
+          if (!dateBDesc) return -1
+          return dateBDesc.getTime() - dateADesc.getTime()
+        
+        case 'estado':
+          const estadoOrder: { [key: string]: number } = { 'pendiente': 1, 'confirmada': 2, 'realizada': 3, 'cancelada': 4 }
+          return (estadoOrder[a.estado as string] || 5) - (estadoOrder[b.estado as string] || 5)
+        
+        case 'servicio':
+          const servicioA = a.servicio?.nombre || ''
+          const servicioB = b.servicio?.nombre || ''
+          return servicioA.localeCompare(servicioB)
+        
+        default:
+          return 0
+      }
+    })
+
+    setFilteredCitas(filtered)
+  }, [citas, estadoFilter, sortBy])
+
   const weekdayName = (d: Date) => {
     const names = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
     return names[d.getDay()]
@@ -71,6 +178,85 @@ export default function AgendamientosPage() {
     const deadline = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() - 1, 12, 0, 0, 0)
     const now = new Date()
     return now <= deadline
+  }
+
+  // Función para verificar si una cita está pagada
+  const isCitaPagada = (c: any) => {
+    const pagos = c.pago || []
+    return pagos.some((p: any) => p.estado === 'aprobado')
+  }
+
+  // Función para verificar si una cita tiene pago pendiente
+  const tienePagoPendiente = (c: any) => {
+    const pagos = c.pago || []
+    return pagos.some((p: any) => p.estado === 'pendiente')
+  }
+
+  // Función para iniciar pago con WebPay
+  const iniciarPagoWebPay = async (cita: any) => {
+    try {
+      const monto = Number(cita.precio_aplicado || 0)
+      if (!monto || monto <= 0) {
+        await Swal.fire('Error', 'Precio inválido para esta cita.', 'error')
+        return
+      }
+
+      const res = await fetch(`${API}/payments/webpay/create`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buyOrder: `cita-${cita.id}`,
+          sessionId: `usuario-${cita.usuario_cita_cliente_idTousuario?.id || 'cliente'}`,
+          amount: monto,
+          returnUrl: `${window.location.origin}/agendamientos`
+        })
+      })
+
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        await Swal.fire('Error', `Error iniciando pago: ${b?.error ?? res.statusText}`, 'error')
+        return
+      }
+
+      const body = await res.json()
+      const url = body.url ?? body.raw?.url
+      const token = body.token ?? body.raw?.token_ws ?? body.raw?.token
+      
+      if (!url || !token) {
+        console.debug("Respuesta Webpay:", body)
+        await Swal.fire('Error', 'Respuesta incompleta del servidor de pagos.', 'error')
+        return
+      }
+
+      // Crear formulario y enviarlo automáticamente (POST token_ws)
+      const form = document.createElement("form")
+      form.method = "POST"
+      form.action = url
+      const input = document.createElement("input")
+      input.type = "hidden"
+      input.name = "token_ws"
+      input.value = token
+      form.appendChild(input)
+      document.body.appendChild(form)
+      form.submit()
+    } catch (err) {
+      console.error("Error en iniciarPagoWebPay:", err)
+      await Swal.fire('Error', 'Error de conexión al iniciar pago.', 'error')
+    }
+  }
+
+  // Función para abrir modal de detalles de pago
+  const abrirModalPago = (cita: any) => {
+    const pagoAprobado = (cita.pago || []).find((p: any) => p.estado === 'aprobado')
+    if (pagoAprobado) {
+      setPaymentModalData({ cita, pago: pagoAprobado })
+    }
+  }
+
+  // Función para cerrar modal
+  const cerrarModalPago = () => {
+    setPaymentModalData(null)
   }
 
   const handleCancel = async (citaId: number) => {
@@ -169,6 +355,50 @@ export default function AgendamientosPage() {
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
         <h1 className="mb-4 text-2xl font-bold text-[#2E5430]">Mis agendamientos</h1>
 
+        {/* Controles de filtros y ordenamiento */}
+        {!loading && !error && citas.length > 0 && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Filtrar por estado:
+                </label>
+                <select
+                  value={estadoFilter}
+                  onChange={(e) => setEstadoFilter(e.target.value)}
+                  className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
+                >
+                  <option value="todas">Todas las citas</option>
+                  <option value="pendiente">Pendientes</option>
+                  <option value="confirmada">Confirmadas</option>
+                  <option value="realizada">Realizadas</option>
+                  <option value="cancelada">Canceladas</option>
+                </select>
+              </div>
+              
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Ordenar por:
+                </label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2E5430] focus:border-transparent"
+                >
+                  <option value="fecha_desc">Fecha (más recientes primero)</option>
+                  <option value="fecha_asc">Fecha (más antiguas primero)</option>
+                  <option value="estado">Estado</option>
+                  <option value="servicio">Servicio</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="mt-2 text-sm text-gray-600">
+              Mostrando {filteredCitas.length} de {citas.length} citas
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div>Cargando agendamientos...</div>
         ) : error ? (
@@ -181,14 +411,31 @@ export default function AgendamientosPage() {
               </div>
             ) : null}
           </div>
-        ) : citas.length === 0 ? (
+        ) : filteredCitas.length === 0 ? (
           <div className="text-center py-8">
-            <p className="mb-4 text-gray-600">No tienes agendamientos próximos.</p>
-            <button onClick={() => router.push('/book-appointment')} className="rounded bg-[#2E5430] px-4 py-2 text-white">Agendar una cita</button>
+            <p className="mb-4 text-gray-600">
+              {estadoFilter === 'todas' 
+                ? 'No tienes agendamientos.' 
+                : `No tienes agendamientos ${estadoFilter === 'pendiente' ? 'pendientes' : 
+                    estadoFilter === 'confirmada' ? 'confirmados' :
+                    estadoFilter === 'realizada' ? 'realizados' :
+                    estadoFilter === 'cancelada' ? 'cancelados' : ''}.`}
+            </p>
+            <div className="flex gap-2 justify-center">
+              {estadoFilter !== 'todas' && (
+                <button 
+                  onClick={() => setEstadoFilter('todas')} 
+                  className="rounded bg-gray-500 px-4 py-2 text-white text-sm"
+                >
+                  Ver todas
+                </button>
+              )}
+              <button onClick={() => router.push('/book-appointment')} className="rounded bg-[#2E5430] px-4 py-2 text-white">Agendar una cita</button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
-            {citas.map((c: any) => {
+            {filteredCitas.map((c: any) => {
               const id = Number(c.id)
               const date = parseDateFromCita(c)
               const label = date ? formatDate(date) : 'Fecha no disponible'
@@ -231,10 +478,57 @@ export default function AgendamientosPage() {
                         </div>
                       )}
 
-                      { c.estado === 'cancelada' && (
-                        <div className="mt-2 flex gap-2">
-                          <span className="px-2 py-1 rounded bg-gray-100 text-sm">Cancelada</span>
-                          <button onClick={() => router.push('/book-appointment')} className="rounded bg-[#2E5430] px-3 py-1 text-white">Agendar otra hora</button>
+                      { c.estado === 'realizada' && c.visita?.visita_producto && c.visita.visita_producto.length > 0 && (
+                        <div className="mt-2">
+                          <strong>Productos utilizados:</strong>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {c.visita.visita_producto.map((vp: any, idx: number) => (
+                              <li key={idx} className="text-sm">
+                                • {vp.producto?.nombre ?? 'Producto'} {vp.cantidad ? `(x${vp.cantidad})` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      { c.estado === 'realizada' && (!c.visita?.visita_producto || c.visita.visita_producto.length === 0) && (
+                        <div className="mt-2">
+                          <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-sm">Servicio completado</span>
+                        </div>
+                      )}
+
+                      {/* Estado de pago para citas realizadas */}
+                      { c.estado === 'realizada' && (
+                        <div className="mt-2">
+                          {isCitaPagada(c) ? (
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-sm font-medium">
+                                ✓ Servicio pagado
+                              </span>
+                              <button
+                                onClick={() => abrirModalPago(c)}
+                                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition-colors"
+                              >
+                                Ver detalles
+                              </button>
+                            </div>
+                          ) : tienePagoPendiente(c) ? (
+                            <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 text-sm font-medium">
+                              ⏳ Pago pendiente
+                            </span>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <span className="px-2 py-1 rounded bg-red-100 text-red-800 text-sm font-medium">
+                                ❌ Servicio sin pagar
+                              </span>
+                              <button
+                                onClick={() => iniciarPagoWebPay(c)}
+                                className="bg-[#2E5430] text-white px-3 py-2 rounded text-sm font-medium hover:bg-[#1f3a24] transition-colors"
+                              >
+                                Pagar ahora - ${Number(c.precio_aplicado || 0).toLocaleString('es-CL')}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -246,6 +540,101 @@ export default function AgendamientosPage() {
         )}
 
       </div>
+
+      {/* Modal de detalles de pago */}
+      {paymentModalData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-[#2E5430]">Detalles del Pago</h3>
+                <button
+                  onClick={cerrarModalPago}
+                  className="text-gray-500 hover:text-gray-700 text-xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {/* Información de la cita */}
+                <div className="border-b pb-3">
+                  <h4 className="font-semibold text-gray-800 mb-2">Servicio</h4>
+                  <p className="text-sm text-gray-600">
+                    {paymentModalData.cita.servicio?.nombre || 'Servicio'}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    ID Cita: {paymentModalData.cita.id}
+                  </p>
+                </div>
+
+                {/* Información del pago */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-gray-800">Información del Pago</h4>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-600">ID Pago:</span>
+                      <p className="text-gray-800">{paymentModalData.pago.id}</p>
+                    </div>
+                    
+                    <div>
+                      <span className="font-medium text-gray-600">Estado:</span>
+                      <p className="text-green-600 font-medium">{paymentModalData.pago.estado}</p>
+                    </div>
+                    
+                    <div>
+                      <span className="font-medium text-gray-600">Método:</span>
+                      <p className="text-gray-800">{paymentModalData.pago.metodo || 'WebPay'}</p>
+                    </div>
+                    
+                    <div>
+                      <span className="font-medium text-gray-600">Monto:</span>
+                      <p className="text-gray-800 font-medium">
+                        ${Number(paymentModalData.pago.monto_clp || 0).toLocaleString('es-CL')} CLP
+                      </p>
+                    </div>
+                    
+                    <div className="col-span-2">
+                      <span className="font-medium text-gray-600">Fecha de pago:</span>
+                      <p className="text-gray-800">
+                        {paymentModalData.pago.creado_en 
+                          ? new Date(paymentModalData.pago.creado_en).toLocaleString('es-CL')
+                          : 'No disponible'
+                        }
+                      </p>
+                    </div>
+                    
+                    {paymentModalData.pago.flow_order_id && (
+                      <div className="col-span-2">
+                        <span className="font-medium text-gray-600">Orden Flow:</span>
+                        <p className="text-gray-800 text-xs break-all">{paymentModalData.pago.flow_order_id}</p>
+                      </div>
+                    )}
+                    
+                    {paymentModalData.pago.flow_status && (
+                      <div className="col-span-2">
+                        <span className="font-medium text-gray-600">Estado Flow:</span>
+                        <p className="text-gray-800">{paymentModalData.pago.flow_status}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={cerrarModalPago}
+                  className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

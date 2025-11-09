@@ -57,6 +57,14 @@ interface Cita {
     resumen: string | null
     inicio: string | null
     fin: string | null
+    visita_producto?: Array<{
+      cantidad: number
+      producto: {
+        id: number
+        nombre: string
+        precio_unitario: number
+      }
+    }>
   }
 }
 
@@ -342,8 +350,11 @@ export default function AgendamientosJardineroPage() {
 
   // Funciones para completar cita con insumos
   const abrirModalCompletar = async (cita: Cita) => {
+    // Si es una cita diferente, resetear productos
+    if (!citaACompletar || citaACompletar.id !== cita.id) {
+      setProductosAgregados([])
+    }
     setCitaACompletar(cita)
-    setProductosAgregados([])
     setProductoSeleccionado('')
     setCantidadSeleccionada('1')
     setModalCompletarOpen(true)
@@ -690,34 +701,26 @@ export default function AgendamientosJardineroPage() {
                             <strong>Resumen:</strong> {cita.visita.resumen}
                           </div>
                         )}
-                        {cita.visita.insumos && (() => {
-                          try {
-                            const insumos = Array.isArray(cita.visita.insumos) ? cita.visita.insumos : JSON.parse(cita.visita.insumos as string);
-                            if (Array.isArray(insumos) && insumos.length > 0) {
-                              const totalInsumos = insumos.reduce((total: number, insumo: any) => 
-                                total + (parseFloat(insumo.precio) * parseInt(insumo.cantidad)), 0
-                              );
-                              return (
-                                <div>
-                                  <strong>Insumos utilizados:</strong>
-                                  <ul className="mt-1 ml-4 list-disc">
-                                    {insumos.map((insumo: any, index: number) => (
-                                      <li key={index}>
-                                        {insumo.nombre} - ${insumo.precio} x {insumo.cantidad} = ${(insumo.precio * insumo.cantidad).toFixed(2)}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                  <div className="mt-2 font-semibold">
-                                    Total insumos: ${totalInsumos.toFixed(2)}
-                                  </div>
-                                </div>
-                              );
-                            }
-                          } catch (e) {
-                            // Si hay error parseando JSON, mostrar mensaje básico
-                            return <div><strong>Insumos:</strong> {String(cita.visita.insumos)}</div>;
-                          }
-                          return null;
+                        {cita.visita.visita_producto && cita.visita.visita_producto.length > 0 && (() => {
+                          const productos = cita.visita.visita_producto;
+                          const totalProductos = productos.reduce((total: number, item: any) => 
+                            total + (Number(item.producto.precio_unitario) * Number(item.cantidad)), 0
+                          );
+                          return (
+                            <div>
+                              <strong>Productos utilizados:</strong>
+                              <ul className="mt-1 ml-4 list-disc">
+                                {productos.map((item: any, index: number) => (
+                                  <li key={index}>
+                                    {item.producto.nombre} - ${Number(item.producto.precio_unitario).toFixed(2)} x {item.cantidad} = ${(Number(item.producto.precio_unitario) * Number(item.cantidad)).toFixed(2)}
+                                  </li>
+                                ))}
+                              </ul>
+                              <div className="mt-2 font-semibold">
+                                Total productos: ${totalProductos.toFixed(2)}
+                              </div>
+                            </div>
+                          );
                         })()}
                       </div>
                     )}
@@ -767,7 +770,7 @@ export default function AgendamientosJardineroPage() {
               <p><strong>Servicio:</strong> {citaACompletar.servicio.nombre}</p>
               <p><strong>Cliente:</strong> {citaACompletar.usuario_cita_cliente_idTousuario.nombre} {citaACompletar.usuario_cita_cliente_idTousuario.apellido}</p>
               <p><strong>Fecha:</strong> {new Date(citaACompletar.fecha_hora).toLocaleString()}</p>
-              <p><strong>Precio base:</strong> ${citaACompletar.precio_aplicado || 0}</p>
+              <p><strong>Precio base:</strong> ${Number(citaACompletar.precio_aplicado) || 0}</p>
             </div>
 
             <div className="mb-4">
@@ -810,7 +813,7 @@ export default function AgendamientosJardineroPage() {
                 <div className="space-y-2">
                   {productosAgregados.map((producto) => (
                     <div key={producto.producto_id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <span>{producto.nombre} - ${producto.precio_unitario.toFixed(2)} x {producto.cantidad} = ${(producto.precio_unitario * producto.cantidad).toFixed(2)}</span>
+                      <span>{producto.nombre} - ${Number(producto.precio_unitario).toFixed(2)} x {producto.cantidad} = ${(Number(producto.precio_unitario) * Number(producto.cantidad)).toFixed(2)}</span>
                       <button
                         onClick={() => quitarProducto(producto.producto_id)}
                         className="text-red-500 hover:text-red-700"
@@ -821,10 +824,10 @@ export default function AgendamientosJardineroPage() {
                   ))}
                 </div>
                 <div className="mt-2 p-2 bg-blue-50 rounded">
-                  <strong>Total productos: ${productosAgregados.reduce((total, producto) => total + (producto.precio_unitario * producto.cantidad), 0).toFixed(2)}</strong>
+                  <strong>Total productos: ${productosAgregados.reduce((total, producto) => total + (Number(producto.precio_unitario) * Number(producto.cantidad)), 0).toFixed(2)}</strong>
                 </div>
                 <div className="mt-1 p-2 bg-green-50 rounded">
-                  <strong>Total final: ${(citaACompletar.precio_aplicado || 0) + productosAgregados.reduce((total, producto) => total + (producto.precio_unitario * producto.cantidad), 0)}</strong>
+                  <strong>Total final: ${(Number(citaACompletar.precio_aplicado) || 0) + productosAgregados.reduce((total, producto) => total + (Number(producto.precio_unitario) * Number(producto.cantidad)), 0)}</strong>
                 </div>
               </div>
             )}

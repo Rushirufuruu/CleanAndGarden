@@ -75,12 +75,19 @@ function authMiddleware(req: Request, res: Response, next: any) {
   }
 }
 
-// Helper para serializar BigInt en JSON (Prisma puede devolver BigInt y JSON.stringify falla)
-// Técnico: JSON.stringify no soporta BigInt; convertimos BigInt -> Number de forma segura.
-// Común: esto evita errores raros cuando mandamos datos muy grandes al front.
+// Helper para serializar BigInt y Decimal en JSON (Prisma puede devolver BigInt y Decimal)
+// Técnico: JSON.stringify no soporta BigInt ni Decimal; convertimos a Number de forma segura.
+// Común: esto evita errores raros cuando mandamos datos numéricos al front.
 function toJSONSafe<T>(data: T): T {
   return JSON.parse(
-    JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))
+    JSON.stringify(data, (_k, v) => {
+      if (typeof v === 'bigint') return Number(v);
+      // Convertir Decimal de Prisma a number
+      if (v && typeof v === 'object' && v.constructor && v.constructor.name === 'Decimal') {
+        return Number(v.toString());
+      }
+      return v;
+    })
   )
 }
 
@@ -3348,15 +3355,10 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
     const clienteId = Number(user?.id);
     if (!clienteId) return res.status(400).json({ error: 'Cliente no identificado' });
 
-    const ahora = new Date();
-
     const citas = await prisma.cita.findMany({
       where: {
         cliente_id: BigInt(clienteId),
-        // traer solo futuras o activas
-        fecha_hora: { gte: ahora },
-          // incluir también citas canceladas para que el cliente pueda ver el historial
-          estado: { in: ['pendiente', 'confirmada', 'cancelada'] }
+        // incluir todas las citas del historial (quitar filtro de fecha futura)
       },
       include: {
         servicio: { select: { id: true, nombre: true, duracion_minutos: true } },
@@ -3375,9 +3377,19 @@ app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
         },
         usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
         usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
-        pago: { select: { id: true, metodo: true, estado: true, monto_clp: true, creado_en: true, flow_order_id: true, flow_status: true } }
+        pago: { select: { id: true, metodo: true, estado: true, monto_clp: true, creado_en: true, flow_order_id: true, flow_status: true } },
+        // incluir visita y productos para citas completadas
+        visita: {
+          include: {
+            visita_producto: {
+              include: {
+                producto: { select: { id: true, nombre: true, descripcion: true } }
+              }
+            }
+          }
+        }
       },
-      orderBy: { fecha_hora: 'asc' }
+      orderBy: { fecha_hora: 'desc' } // ordenar por fecha descendente para mostrar más recientes primero
     });
 
     res.json(toJSONSafe(citas));
@@ -3481,7 +3493,19 @@ app.get('/citas/jardinero', authMiddleware, async (req: Request, res: Response) 
             estado: true,
             resumen: true,
             inicio: true,
-            fin: true
+            fin: true,
+            visita_producto: {
+              select: {
+                cantidad: true,
+                producto: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                    precio_unitario: true
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -4799,91 +4823,6 @@ app.post("/payments/webpay/commit", async (req, res) => {
   }
 });
 
-// Completar cita con insumos
-app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
-  try {
-    const userData = (req as any).user;
-    const { id } = req.params;
-    const { insumos } = req.body;
-
-    // Verificar que la cita existe y pertenece al técnico
-    const cita = await prisma.cita.findFirst({
-      where: { 
-        id: BigInt(id), 
-        tecnico_id: BigInt(userData.id),
-        estado: 'confirmada'
-      }
-    });
-
-    if (!cita) {
-      return res.status(404).json({ error: 'Cita no encontrada o no puedes completarla' });
-    }
-
-    // Calcular el total de insumos
-    let totalInsumos = 0;
-    if (insumos && Array.isArray(insumos)) {
-      totalInsumos = insumos.reduce((total: number, insumo: any) => {
-        return total + (parseFloat(insumo.precio) * parseInt(insumo.cantidad));
-      }, 0);
-    }
-
-    // Actualizar el precio aplicado de la cita sumando los insumos
-    const precioBase = cita.precio_aplicado ? Number(cita.precio_aplicado) : 0;
-    const nuevoPrecioTotal = precioBase + totalInsumos;
-
-    // Crear o actualizar la visita
-    const visitaExistente = await prisma.visita.findFirst({
-      where: { cita_id: BigInt(id) }
-    });
-
-    if (visitaExistente) {
-      // Actualizar visita existente
-      await prisma.visita.update({
-        where: { id: visitaExistente.id },
-        data: {
-          insumos: insumos && insumos.length > 0 ? insumos : null,
-          estado: 'completada',
-          fin: new Date(),
-          fecha_actualizacion: new Date()
-        }
-      });
-    } else {
-      // Crear nueva visita
-      await prisma.visita.create({
-        data: {
-          cita_id: BigInt(id),
-          tecnico_id: BigInt(userData.id),
-          insumos: insumos && insumos.length > 0 ? insumos : null,
-          estado: 'completada',
-          inicio: new Date(cita.fecha_hora),
-          fin: new Date(),
-          resumen: `Servicio completado con ${insumos?.length || 0} insumos agregados`
-        }
-      });
-    }
-
-    // Actualizar el estado de la cita a 'realizada' y el precio total
-    await prisma.cita.update({
-      where: { id: BigInt(id) },
-      data: {
-        estado: 'realizada',
-        precio_aplicado: nuevoPrecioTotal,
-        fecha_actualizacion: new Date()
-      }
-    });
-
-    res.json({ 
-      message: "Cita completada exitosamente",
-      precio_total: nuevoPrecioTotal,
-      insumos_agregados: insumos?.length || 0
-    });
-
-  } catch (err: any) {
-    console.error("Error completando cita:", err);
-    res.status(500).json({ error: "Error interno al completar la cita" });
-  }
-});
-
 // Obtener lista de productos/insumos disponibles
 app.get("/productos", authMiddleware, async (req, res) => {
   try {
@@ -4929,6 +4868,7 @@ app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
     // Calcular el total de productos y validar stock
     let totalProductos = 0;
     const productosDetalle = [];
+    const visitaProductosData = []; // Array para almacenar los datos de visita_producto
 
     if (productos && Array.isArray(productos)) {
       for (const item of productos) {
@@ -4955,11 +4895,19 @@ app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
           cantidad: item.cantidad,
           subtotal: subtotal
         });
+
+        // Preparar datos para visita_producto con costo_unitario
+        visitaProductosData.push({
+          visita_id: 0, // Se actualizará después de crear la visita
+          producto_id: BigInt(item.producto_id),
+          cantidad: item.cantidad,
+          costo_unitario: precioUnitario // Guardar el precio unitario en ese momento
+        });
       }
     }
 
     // Actualizar el precio aplicado de la cita sumando los productos
-    const precioBase = cita.precio_aplicado ? Number(cita.precio_aplicado) : 0;
+    const precioBase = cita.precio_aplicado ? parseFloat(cita.precio_aplicado.toString()) : 0;
     const nuevoPrecioTotal = precioBase + totalProductos;
 
     // Crear o actualizar la visita
@@ -4994,11 +4942,10 @@ app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
 
     // Crear registros en visita_producto
     if (productos && productos.length > 0) {
-      const visitaProductosData = productos.map((item: any) => ({
-        visita_id: visita.id,
-        producto_id: BigInt(item.producto_id),
-        cantidad: item.cantidad
-      }));
+      // Actualizar el visita_id en todos los registros
+      visitaProductosData.forEach(item => {
+        item.visita_id = Number(visita.id);
+      });
 
       await prisma.visita_producto.createMany({
         data: visitaProductosData
@@ -5038,5 +4985,3 @@ app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Error interno al completar la cita" });
   }
 });
-
-
