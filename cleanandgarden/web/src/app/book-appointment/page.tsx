@@ -95,6 +95,9 @@ export default function BookAppointmentPage() {
 		const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null)
 		const [reservando, setReservando] = useState(false)
 
+		// términos y condiciones
+		const [termsAccepted, setTermsAccepted] = useState(false)
+
 		// Mis citas (cliente)
 
 
@@ -599,6 +602,60 @@ export default function BookAppointmentPage() {
 			return
 		}
 
+		// Mostrar modal de confirmación con términos y condiciones
+		const servicioSeleccionado = servicios.find(s => Number(s.id) === selectedServicioId)
+		const tecnicoSeleccionado = tecnicos.find(t => Number(t.id) === selectedTecnicoId)
+		const gardenSeleccionado = gardens.find(g => Number(g.id) === selectedGardenId)
+
+		const result = await Swal.fire({
+			title: 'Confirmar Reserva de Cita',
+			html: `
+				<div class="text-left space-y-3 max-w-lg">
+					<div class="bg-gray-50 p-3 rounded">
+						<h4 class="font-semibold text-gray-800 mb-2">Detalles de la cita:</h4>
+						<p><strong>Servicio:</strong> ${servicioSeleccionado?.title || 'N/A'}</p>
+						<p><strong>Jardín:</strong> ${gardenSeleccionado?.nombre || 'N/A'}</p>
+						<p><strong>Técnico:</strong> ${tecnicoSeleccionado ? `${tecnicoSeleccionado.nombre} ${tecnicoSeleccionado.apellido}` : 'A designar'}</p>
+						<p><strong>Fecha y hora:</strong> ${new Date(selectedSlot.hora_inicio).toLocaleString('es-CL')}</p>
+						<p><strong>Precio:</strong> $${servicioSeleccionado?.precio ? Number(servicioSeleccionado.precio).toLocaleString('es-CL') : 'A convenir'} CLP</p>
+					</div>
+					<div class="border-t pt-3">
+						<label class="flex items-start space-x-2 cursor-pointer">
+							<input type="checkbox" id="terms-checkbox" class="mt-1">
+							<span class="text-sm text-gray-700">
+								Acepto los <a href="/terminos-y-condiciones" class="text-blue-600 hover:underline" target="_blank">términos y condiciones</a> 
+								del servicio y autorizo el procesamiento de mis datos personales según la política de privacidad.
+							</span>
+						</label>
+					</div>
+				</div>
+			`,
+			showCancelButton: true,
+			confirmButtonText: 'Confirmar Reserva',
+			cancelButtonText: 'Cancelar',
+			confirmButtonColor: '#2E5430',
+			cancelButtonColor: '#6B7280',
+			width: 600,
+			preConfirm: () => {
+				const checkbox = document.getElementById('terms-checkbox') as HTMLInputElement
+				if (!checkbox.checked) {
+					Swal.showValidationMessage('Debes aceptar los términos y condiciones para continuar')
+					return false
+				}
+				return true
+			}
+		})
+
+		if (!result.isConfirmed) {
+			return
+		}
+
+		// Proceder con la reserva
+		await ejecutarReserva()
+	}
+
+	// Función interna para ejecutar la reserva (extraída de la lógica original)
+	async function ejecutarReserva() {
 		setReservando(true)
 		try {
 			// Incluir el precio aplicado del servicio seleccionado (si está disponible)
