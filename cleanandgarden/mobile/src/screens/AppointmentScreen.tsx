@@ -6,91 +6,64 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// ✅ URL de tu backend Railway
-const API_URL = "https://believable-victory-production.up.railway.app";
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
-export default function AppointmentScreen({ route }: any) {
+export default function AppointmentScreen() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAppointments = async () => {
       try {
         setLoading(true);
 
-        // Obtener email del usuario autenticado
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError || !user || !user.email) {
-          console.error("❌ Error al obtener usuario:", userError);
-          Alert.alert("Error", "No se pudo obtener la sesión. Por favor, inicia sesión nuevamente.");
+        // Obtener info de usuario
+        const email = await AsyncStorage.getItem("userEmail");
+        const storedRole = await AsyncStorage.getItem("userRole");
+        setRole(storedRole);
+
+        console.log("📧 Email:", email);
+        console.log("👤 Rol:", storedRole);
+
+        if (!email) {
+          Alert.alert("Error", "No se pudo obtener la sesión. Inicia sesión nuevamente.");
           return;
         }
 
-        const email = user.email;
-        console.log(`🔄 Fetching appointments for: ${email}`);
-        
-        // Add timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        let url = "";
 
-        // Usar el endpoint público con el email del usuario
-        const url = `${API_URL}/citas/${encodeURIComponent(email)}`;
-        console.log(`📡 Requesting: ${url}`);
-
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-        
-        console.log(`📡 Response status: ${response.status}`);
-        console.log(`📡 Response Content-Type: ${response.headers.get('content-type')}`);
-
-        // Check if response is actually JSON
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-          const textResponse = await response.text();
-          console.error("❌ Response is not JSON:", textResponse.substring(0, 300));
-          throw new Error(
-            `El servidor no está respondiendo correctamente.\n\n` +
-            `Por favor, verifica que el backend esté desplegado en Railway.\n\n` +
-            `Status: ${response.status}`
-          );
+        if (storedRole === "admin") {
+          url = `${API_URL}/citas/all`; // 🔸 Endpoint para admins
+        } else {
+          url = `${API_URL}/citas/${encodeURIComponent(email)}`; // 🔸 Endpoint cliente
         }
 
-        const data = await response.json();
-        console.log(`✅ Data received: ${data.length} citas`);
+        console.log("🌐 URL completa:", url);
 
-        if (!response.ok) {
-          throw new Error(data.error || `Error del servidor: ${response.status}`);
+        const res = await fetch(url);
+        
+        console.log("📡 Status:", res.status);
+        console.log("📡 OK:", res.ok);
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error("❌ Error del servidor:", errorText);
+          throw new Error("Error al obtener citas");
         }
 
+        const data = await res.json();
+        console.log("✅ Citas obtenidas:", data.length);
         setAppointments(data);
       } catch (err: any) {
         console.error("❌ Error al cargar citas:", err);
-        
-        let errorMessage = "No se pudieron cargar las citas.";
-        
-        if (err.name === 'AbortError') {
-          errorMessage = "La solicitud tardó demasiado tiempo. Verifica tu conexión a internet.";
-        } else if (err.message && err.message.includes('Network request failed')) {
-          errorMessage = "Error de red. Verifica que estés conectado a internet.";
-        } else if (err.message) {
-          errorMessage = err.message;
-        }
-        
-        Alert.alert("Error al cargar citas", errorMessage);
+        Alert.alert("Error", err.message || "No se pudieron cargar las citas.");
       } finally {
         setLoading(false);
       }
@@ -101,9 +74,7 @@ export default function AppointmentScreen({ route }: any) {
 
   const renderAppointment = ({ item }: any) => {
     const nombreServicio =
-      item.nombre_servicio_snapshot ||
-      item.servicio?.nombre ||
-      "Servicio";
+      item.nombre_servicio_snapshot || item.servicio?.nombre || "Servicio";
     const precio = item.precio_aplicado || item.servicio?.precio_clp || null;
     const fecha = new Date(item.fecha_hora);
     const fechaLocal = fecha.toLocaleDateString("es-CL");
@@ -113,7 +84,7 @@ export default function AppointmentScreen({ route }: any) {
     });
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} activeOpacity={0.8}>
         <View style={styles.row}>
           <Ionicons name="leaf-outline" size={24} color="#2E5430" />
           <View style={{ flex: 1 }}>
@@ -135,15 +106,22 @@ export default function AppointmentScreen({ route }: any) {
           </Text>
         </View>
 
+        {role === "admin" && item.cliente && (
+          <Text style={styles.adminCliente}>
+            Cliente: {item.cliente.nombre || item.cliente.email}
+          </Text>
+        )}
+
         {precio && (
           <Text style={styles.precio}>
             {parseFloat(precio).toLocaleString("es-CL")} CLP
           </Text>
         )}
+
         {item.notas_cliente && (
           <Text style={styles.notas}>{item.notas_cliente}</Text>
         )}
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -151,9 +129,13 @@ export default function AppointmentScreen({ route }: any) {
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>Tus horas agendadas</Text>
+          <Text style={styles.title}>
+            {role === "admin" ? "Todas las citas" : "Tus citas agendadas"}
+          </Text>
           <Text style={styles.subtitle}>
-            Consulta tus servicios programados fácilmente.
+            {role === "admin"
+              ? "Visualiza todas las citas registradas."
+              : "Consulta tus servicios programados fácilmente."}
           </Text>
         </View>
 
@@ -163,7 +145,7 @@ export default function AppointmentScreen({ route }: any) {
           <View style={{ alignItems: "center", marginTop: 50 }}>
             <Ionicons name="calendar-outline" size={60} color="#94A3B8" />
             <Text style={{ color: "#6B7280", marginTop: 10 }}>
-              No tienes citas agendadas por ahora.
+              No hay citas registradas.
             </Text>
           </View>
         ) : (
@@ -243,5 +225,11 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 13,
     marginLeft: 28,
+  },
+  adminCliente: {
+    marginLeft: 28,
+    fontSize: 13,
+    color: "#2E5430",
+    fontWeight: "500",
   },
 });

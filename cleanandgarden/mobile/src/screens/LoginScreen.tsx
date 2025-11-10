@@ -12,10 +12,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-//URL de tu backend Railway
-const API_URL = "https://believable-victory-production.up.railway.app";
+// URL del backend (localhost en desarrollo, Railway en producción)
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
+
+
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
@@ -36,36 +38,34 @@ export default function LoginScreen({ navigation }: any) {
     setLoading(true);
 
     try {
-      // 1. Iniciar sesión en Supabase primero
-      console.log("🔐 Iniciando sesión en Supabase...");
-      const { data: supabaseData, error: supabaseError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password,
-      });
-
-      if (supabaseError) {
-        console.error("❌ Error en Supabase:", supabaseError);
-        throw new Error(supabaseError.message || "Error al autenticar con Supabase");
-      }
-
-      console.log("✅ Sesión de Supabase iniciada:", supabaseData.user?.email);
-
-      // 2. Llamar al backend de Railway para validación adicional
-      console.log("🔐 Validando con backend Railway...");
+      console.log("🔐 Iniciando sesión con backend...");
+      console.log("📡 API_URL:", API_URL);
+      console.log("📡 URL completa:", `${API_URL}/login`);
+      
       const response = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        // Si el backend falla pero Supabase funcionó, continuamos
-        console.warn("⚠️ Backend validation warning:", data.error);
+        throw new Error(data.error || "Error al iniciar sesión");
+      }
+
+      console.log("✅ Respuesta del backend:", data);
+
+      // Guardar el email del usuario en AsyncStorage para usarlo en otras pantallas
+      await AsyncStorage.setItem("userEmail", email.trim());
+      
+      if (data.user) {
+        await AsyncStorage.setItem("userName", data.user.nombre || "Usuario");
+        await AsyncStorage.setItem("userId", data.user.id?.toString() || "");
+        await AsyncStorage.setItem("userRole", data.user.rol || "cliente"); // 🔸 Guardar rol
       }
 
       // Si el backend devuelve redirectTo, mostramos advertencia
@@ -75,10 +75,8 @@ export default function LoginScreen({ navigation }: any) {
           data.warning || "Completa tu perfil antes de continuar."
         );
       } else {
-        Alert.alert("✅ Éxito", "Inicio de sesión exitoso");
+        Alert.alert("✅ Éxito", data.message || "Inicio de sesión exitoso");
       }
-
-      console.log("✅ Usuario autenticado:", supabaseData.user?.email);
 
       // Redirigir al Home/Tabs
       navigation.reset({

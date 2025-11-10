@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { supabase } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const formatDate = (isoDate: string) => {
   const date = new Date(isoDate);
@@ -29,8 +29,10 @@ const formatDate = (isoDate: string) => {
   return `${fecha} — ${hora}`;
 };
 
+// URL del backend (localhost en desarrollo, Railway en producción)
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
-const API_URL = "https://believable-victory-production.up.railway.app";
+
 
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
@@ -41,19 +43,15 @@ export default function HomeScreen({ navigation }: any) {
   useEffect(() => {
     const fetchUserInfo = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser();
+        // Obtener el email guardado en AsyncStorage
+        const email = await AsyncStorage.getItem("userEmail");
         
-        if (error || !user) {
-          console.error("❌ Error al obtener usuario:", error);
-          return;
-        }
-
-        const email = user.email;
-        console.log("✅ Usuario autenticado:", email);
-
         if (!email) {
+          console.error("❌ No hay email guardado");
           return;
         }
+
+        console.log("✅ Email del usuario:", email);
 
         // Buscar información adicional del usuario en el backend usando el email
         const response = await fetch(`${API_URL}/usuario/info/email/${encodeURIComponent(email)}`);
@@ -85,7 +83,7 @@ export default function HomeScreen({ navigation }: any) {
         setLoading(true);
 
         const response = await fetch(
-          "https://believable-victory-production.up.railway.app/servicios"
+          `${API_URL}/servicios`
         );
         if (!response.ok) throw new Error("Error al obtener los servicios");
 
@@ -106,10 +104,11 @@ export default function HomeScreen({ navigation }: any) {
   useEffect(() => {
     const fetchNextAppointment = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user?.email) return;
+        // Obtener el email desde AsyncStorage
+        const email = await AsyncStorage.getItem("userEmail");
+        if (!email) return;
 
-        const res = await fetch(`${API_URL}/citas/${encodeURIComponent(user.email)}`);
+        const res = await fetch(`${API_URL}/citas/${encodeURIComponent(email)}`);
         if (!res.ok) throw new Error("No se pudo obtener las citas");
 
         const citas = await res.json();
@@ -176,13 +175,6 @@ export default function HomeScreen({ navigation }: any) {
                 <Text style={styles.greeting}>Hola, {userName}</Text>
                 <Text style={styles.title}>Bienvenido a Clean & Garden</Text>
               </View>
-
-              <TouchableOpacity
-                style={styles.profileButton}
-                onPress={() => Alert.alert("Perfil", "Funcionalidad próximamente")}
-              >
-                <Ionicons name="person-circle-outline" size={42} color="#2E5430" />
-              </TouchableOpacity>
             </View>
 
             <View style={styles.headerBottom}>

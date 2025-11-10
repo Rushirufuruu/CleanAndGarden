@@ -3797,6 +3797,51 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
 });
 
 // ==========================================
+// ==========================================
+// OBTENER TODAS LAS CITAS (PARA ADMIN)
+// ==========================================
+app.get("/citas/all", async (req, res) => {
+  try {
+    const citas = await prisma.cita.findMany({
+      include: {
+        servicio: { select: { nombre: true, precio_clp: true } },
+        usuario_cita_cliente_idTousuario: {
+          select: { id: true, nombre: true, apellido: true, email: true },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    const formatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+      cliente: cita.usuario_cita_cliente_idTousuario
+        ? {
+            id: Number(cita.usuario_cita_cliente_idTousuario.id),
+            nombre: cita.usuario_cita_cliente_idTousuario.nombre,
+            apellido: cita.usuario_cita_cliente_idTousuario.apellido,
+            email: cita.usuario_cita_cliente_idTousuario.email,
+          }
+        : null,
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    console.error("❌ Error al obtener todas las citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 // OBTENER CITAS POR EMAIL DEL CLIENTE
 // ==========================================
 app.get("/citas/:email", async (req, res) => {
