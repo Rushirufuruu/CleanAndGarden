@@ -49,7 +49,7 @@ export default function PerfilUsuario() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await fetch("http://localhost:3001/profile", { credentials: "include" });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, { credentials: "include" });
         const data = await res.json();
 
         if (res.ok && data.user) {
@@ -77,7 +77,7 @@ export default function PerfilUsuario() {
   useEffect(() => {
     const fetchRegiones = async () => {
       try {
-        const res = await fetch("http://localhost:3001/regiones");
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/regiones`);
         const data = await res.json();
         if (res.ok) setRegiones(data);
       } catch (err) {
@@ -91,7 +91,7 @@ export default function PerfilUsuario() {
   const fetchComunas = async (regionId: number) => {
     if (comunasPorRegion[regionId]) return;
     try {
-      const res = await fetch(`http://localhost:3001/regiones/${regionId}/comunas`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/regiones/${regionId}/comunas`);
       const data = await res.json();
       if (res.ok) {
         setComunasPorRegion((prev) => ({ ...prev, [regionId]: data }));
@@ -205,7 +205,7 @@ export default function PerfilUsuario() {
   if (!validateForm() || !user) return;
   setSaving(true);
   try {
-    const res = await fetch("http://localhost:3001/profile", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -427,10 +427,13 @@ export default function PerfilUsuario() {
                       <select
                         value={dir.region}
                         onChange={(e) => {
-                          handleDireccionChange(index, "region", e.target.value);
-                          handleDireccionChange(index, "comuna", "");
+                          const selectedRegionName = e.target.value;
+                          // Actualiza solo la región
+                          handleDireccionChange(index, "region", selectedRegionName);
+
+                          // Busca el id de la región y carga sus comunas
                           const selectedRegion = regiones.find(
-                            (r) => r.nombre === e.target.value
+                            (r) => r.nombre === selectedRegionName
                           );
                           if (selectedRegion) fetchComunas(selectedRegion.id);
                         }}
@@ -444,6 +447,7 @@ export default function PerfilUsuario() {
                           </option>
                         ))}
                       </select>
+
 
                       <label className="block text-gray-600 text-sm mb-1">Comuna *</label>
                       <select

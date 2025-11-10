@@ -40,7 +40,7 @@ export default function NuevaConversacionPage() {
     setError('')
     try {
       const query = busqueda ? `?query=${encodeURIComponent(busqueda)}` : ''
-      const res = await fetch(`http://localhost:3001/usuarios/buscar${query}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/usuarios/buscar${query}`, {
         credentials: 'include'
       })
 
@@ -66,7 +66,7 @@ export default function NuevaConversacionPage() {
     setCreating(true)
     setError('')
     try {
-      const res = await fetch('http://localhost:3001/conversaciones', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversaciones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

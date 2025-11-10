@@ -45,7 +45,7 @@ export default function AdminUsuariosPage() {
   // Cargar usuarios
   const fetchUsuarios = async () => {
     try {
-      const res = await fetch("http://localhost:3001/admin/usuarios", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/usuarios`, {
         credentials: "include",
       });
       const data = await res.json();
@@ -61,7 +61,7 @@ export default function AdminUsuariosPage() {
   // Cargar roles
   const fetchRoles = async () => {
     try {
-      const res = await fetch("http://localhost:3001/admin/roles", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles`, {
         credentials: "include",
       });
       const data = await res.json();
@@ -78,7 +78,7 @@ export default function AdminUsuariosPage() {
 
   // Cambiar estado activo/inactivo
   const cambiarEstado = async (id: number, activo: boolean) => {
-    const res = await fetch(`http://localhost:3001/admin/usuarios/${id}/estado`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/usuarios/${id}/estado`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -104,7 +104,7 @@ export default function AdminUsuariosPage() {
 
     if (!confirm.isConfirmed) return;
 
-    const res = await fetch(`http://localhost:3001/admin/usuarios/${id}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/usuarios/${id}`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -158,7 +158,7 @@ export default function AdminUsuariosPage() {
     if (!validarFormulario()) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/admin/usuarios/${usuarioEdit.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/usuarios/${usuarioEdit.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

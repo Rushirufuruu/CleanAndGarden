@@ -14,7 +14,7 @@ export default function PortfolioPage() {
     const fetchPortfolio = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('http://localhost:3001/portfolio');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/portfolio`);
         
         if (!response.ok) {
           throw new Error('Error al cargar el portfolio');
@@ -68,7 +68,7 @@ export default function PortfolioPage() {
           <div className="text-center text-red-600 mb-10">
             <p className="text-xl mb-4">⚠️ {error}</p>
             <p className="text-gray-600">
-              Por favor, asegúrate de que el servidor esté ejecutándose en http://localhost:3001
+              Por favor, asegúrate de que el servidor esté ejecutándose en ${process.env.NEXT_PUBLIC_API_URL}
             </p>
             <button 
               onClick={() => window.location.reload()} 

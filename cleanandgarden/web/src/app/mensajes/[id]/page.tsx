@@ -46,7 +46,7 @@ export default function ConversacionPage({
 
   const fetchUsuarioActual = async () => {
     try {
-      const res = await fetch('http://localhost:3001/profile', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
         credentials: 'include',
       });
 
@@ -66,7 +66,7 @@ export default function ConversacionPage({
       });
 
       // Obtener el otroUsuario de la conversación
-      const resConversaciones = await fetch('http://localhost:3001/conversaciones', {
+      const resConversaciones = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversaciones`, {
         credentials: 'include',
       });
       if (resConversaciones.ok) {

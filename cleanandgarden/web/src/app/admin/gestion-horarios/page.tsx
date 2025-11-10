@@ -2,7 +2,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
-
+import { Pencil, Trash2 } from "lucide-react";
 /**
  * Paleta "Clean & Garden"
  * - Verde oscuro: #2E5430
@@ -766,22 +766,27 @@ export default function GestionHorarios() {
                               {s.usuario?.rol?.codigo ?? ""}
                             </span>
                           </div>
-                          <div className="flex gap-1 shrink-0">
+                          <div className="flex gap-2">
+                            {/* Botón EDITAR (verde) */}
                             <button
                               onClick={() => editarSlot(s)}
-                              className="text-[10px] px-2 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300"
+                              className="p-1.5 rounded bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
                               title="Editar cupos"
                             >
-                              ✏️
+                              <Pencil size={16} strokeWidth={2} />
                             </button>
+
+                            {/* Botón ELIMINAR (café) */}
                             <button
                               onClick={() => eliminarSlot(s.id!)}
-                              className="text-[10px] px-2 py-0.5 rounded bg-red-200 hover:bg-red-300"
+                              className="p-1.5 rounded bg-[#8B6B4A] hover:bg-[#6F5237] text-white transition-colors shadow-sm"
                               title="Eliminar slot"
                             >
-                              🗑️
+                              <Trash2 size={16} strokeWidth={2} />
                             </button>
                           </div>
+
+
                         </div>
 
                       ))

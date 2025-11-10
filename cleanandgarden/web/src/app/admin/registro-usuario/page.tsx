@@ -25,7 +25,7 @@ export default function CrearUsuarioPage() {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const res = await fetch("http://localhost:3001/admin/roles", {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles`, {
           credentials: "include", // envía cookie del admin
         });
         const data = await res.json();
@@ -61,7 +61,7 @@ export default function CrearUsuarioPage() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/admin/registro-usuario", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/registro-usuario`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

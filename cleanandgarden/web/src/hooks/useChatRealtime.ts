@@ -96,7 +96,7 @@ export function useChatRealtime(conversacionId: number) {
       }
     };
 
-    socket.onerror = (err) => console.error("Error WebSocket:", err);
+    socket.onerror = (err) => console.log("Error WebSocket:", err);
     socket.onclose = () => console.log("Conexión WebSocket cerrada");
 
     return () => socket.close();

@@ -19,7 +19,7 @@ function ConfirmEmailContent() {
     }
 
     // Llamamos al backend para confirmar el email
-    fetch(`http://localhost:3001/confirm-email/${token}`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/confirm-email/${token}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {

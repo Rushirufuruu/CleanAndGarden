@@ -81,7 +81,7 @@ export default function CreatePortfolioModal({
         }
       }
 
-      const response = await fetch("http://localhost:3001/admin/portfolio", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/portfolio`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -95,7 +95,7 @@ export default function CreatePortfolioModal({
       if (!response.ok) {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html")) {
-          throw new Error(`Error del servidor (${response.status}). Verifica que el backend esté corriendo en http://localhost:3001`);
+          throw new Error(`Error del servidor (${response.status}). Verifica que el backend esté corriendo en ${process.env.NEXT_PUBLIC_API_URL}`);
         }
         
         const errorData = await response.json();

@@ -35,7 +35,7 @@ export default function CambioContrasena() {
     }
 
     try {
-      const res = await fetch("http://localhost:3001/change-password", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/change-password`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include", // 👈 envía el JWT (cookie)
