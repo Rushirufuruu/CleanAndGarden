@@ -1091,6 +1091,141 @@ app.post("/usuario", async (req, res) => {
 });
 
 //-------------------------------------------------------------------------------------
+// Función para enviar correo de confirmación de reserva
+async function enviarCorreoConfirmacionReserva(citaId: bigint) {
+  try {
+    // Obtener datos completos de la cita con todas las relaciones
+    const cita = await prisma.cita.findUnique({
+      where: { id: citaId },
+      include: {
+        servicio: { select: { id: true, nombre: true } },
+        jardin: { select: { id: true, nombre: true } },
+        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true } },
+        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true } },
+      },
+    }) as any;
+
+    if (!cita || !cita.usuario_cita_cliente_idTousuario?.email) {
+      console.error("No se pudo obtener datos de la cita o email del cliente");
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+    });
+
+    // Formatear fecha y hora
+    const fechaHora = new Date(cita.fecha_hora).toLocaleString('es-CL', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fefaf2; padding: 20px;">
+        <div style="background: #2E5430; color: white; padding: 20px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">🌿 Clean & Garden</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">Tu cita ha sido confirmada</p>
+        </div>
+
+        <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <h2 style="color: #2E5430; margin-top: 0;">¡Hola ${cita.usuario_cita_cliente_idTousuario.nombre}!</h2>
+
+          <p style="color: #666; line-height: 1.6;">
+            Tu cita ha sido <strong>reservada exitosamente</strong>. Aquí tienes todos los detalles:
+          </p>
+
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2E5430;">
+            <h3 style="margin-top: 0; color: #2E5430;">📅 Detalles de tu cita</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Servicio:</td>
+                <td style="padding: 8px 0;">${cita.servicio?.nombre || 'Servicio'}</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Fecha y Hora:</td>
+                <td style="padding: 8px 0;">${fechaHora}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Jardín:</td>
+                <td style="padding: 8px 0;">${cita.jardin?.nombre || 'Tu jardín'}</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Técnico:</td>
+                <td style="padding: 8px 0;">${cita.usuario_cita_tecnico_idTousuario ? `${cita.usuario_cita_tecnico_idTousuario.nombre} ${cita.usuario_cita_tecnico_idTousuario.apellido}` : 'Por asignar'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Duración:</td>
+                <td style="padding: 8px 0;">${cita.duracion_minutos} minutos</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Precio:</td>
+                <td style="padding: 8px 0; font-weight: bold;">$${cita.precio_aplicado ? Number(cita.precio_aplicado).toLocaleString('es-CL') : 'A convenir'} CLP</td>
+              </tr>
+              ${cita.notas_cliente ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Notas:</td>
+                <td style="padding: 8px 0;">${cita.notas_cliente}</td>
+              </tr>
+              ` : ''}
+            </table>
+          </div>
+
+          <div style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #4caf50;">
+            <h4 style="margin-top: 0; color: #2e7d32;">✅ Próximos pasos</h4>
+            <ul style="color: #2e7d32; margin: 10px 0; padding-left: 20px;">
+              <li>Recibirás un recordatorio 24 horas antes del servicio</li>
+              <li>El técnico llegará puntualmente a la hora acordada</li>
+              <li>El pago se realiza después de completado el servicio</li>
+              <li>Puedes cancelar o modificar hasta 24 horas antes</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <p style="color: #666; margin-bottom: 20px;">
+              ¿Necesitas modificar tu cita o tienes alguna pregunta?
+            </p>
+            <a href="${process.env.FRONTEND_URL}/agendamientos"
+               style="background: #2E5430; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+              Ver mis citas
+            </a>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+          <div style="text-align: center; color: #999; font-size: 12px;">
+            <p>📧 Contacto: contacto@cleanandgarden.cl</p>
+            <p>📱 WhatsApp: +56 9 1234 5678</p>
+            <p>🏢 Santiago, Chile</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: cita.usuario_cita_cliente_idTousuario.email,
+      subject: `✅ Tu cita ha sido confirmada - ${fechaHora}`,
+      html,
+    });
+
+    console.log("📧 Correo de confirmación de reserva enviado a:", cita.usuario_cita_cliente_idTousuario.email);
+  } catch (err) {
+    console.error("❌ Error al enviar correo de confirmación de reserva:", err);
+  }
+}
+
+//-------------------------------------------------------------------------------------
 // Confirmar email
 app.get("/confirm-email/:token", async (req, res) => {
   try {
@@ -3338,6 +3473,11 @@ app.post("/cita/reservar", async (req, res) => {
       });
 
       return cita;
+    });
+
+    // Enviar correo de confirmación de reserva de forma asíncrona
+    setImmediate(() => {
+      enviarCorreoConfirmacionReserva(result.id);
     });
 
     return res.status(201).json({ ok: true, cita: toJSONSafe(result) });

@@ -122,7 +122,7 @@ export default function TerminosCondicionesPage() {
               4. Proceso de Pago Post-Servicio
             </h2>
             <div className="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-r-lg mb-6">
-              <h3 className="font-semibold text-blue-800 mb-2">🔄 Cómo Funciona</h3>
+              <h3 className="font-semibold text-blue-800 mb-2">Cómo Funciona</h3>
               <p className="text-blue-700">
                 <strong>Tu tranquilidad es nuestra prioridad.</strong> Reserva sin riesgos y paga solo cuando estés completamente satisfecho con el trabajo realizado.
               </p>
@@ -131,7 +131,6 @@ export default function TerminosCondicionesPage() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-gray-50 p-6 rounded-lg">
                 <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
-                  <span className="text-green-600 mr-2">✅</span>
                   Después del Servicio
                 </h3>
                 <ul className="space-y-2 text-gray-700">
@@ -144,7 +143,6 @@ export default function TerminosCondicionesPage() {
 
               <div className="bg-gray-50 p-6 rounded-lg">
                 <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
-                  <span className="text-blue-600 mr-2">💳</span>
                   Pago Seguro
                 </h3>
                 <ul className="space-y-2 text-gray-700">
@@ -189,7 +187,7 @@ export default function TerminosCondicionesPage() {
               6. Cancelaciones y Modificaciones
             </h2>
             <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-lg mb-6">
-              <h3 className="font-semibold text-orange-800 mb-2">📅 Política de Cancelación</h3>
+              <h3 className="font-semibold text-orange-800 mb-2">Política de Cancelación</h3>
               <p className="text-orange-700">
                 <strong>Sin riesgos de cancelación.</strong> Dado que el pago se realiza después del servicio completado,
                 puedes cancelar tu cita en cualquier momento sin costo adicional.
@@ -207,12 +205,6 @@ export default function TerminosCondicionesPage() {
                 <div className="w-2 h-2 bg-[#2E5430] rounded-full mt-2 flex-shrink-0"></div>
                 <p className="text-gray-700">
                   <strong>Modificaciones:</strong> Si necesitas cambiar la fecha u hora, puedes hacerlo libremente hasta 24 horas antes del servicio programado.
-                </p>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0"></div>
-                <p className="text-gray-700">
-                  <strong>Cancelación tardía:</strong> Si cancelas con menos de 24 horas de anticipación, se aplicará un cargo administrativo de $5.000 CLP por gastos de coordinación.
                 </p>
               </div>
               <div className="flex items-start space-x-3">
@@ -277,20 +269,20 @@ export default function TerminosCondicionesPage() {
               <h3 className="font-semibold text-green-800 mb-3">¿Necesitas Ayuda?</h3>
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <h4 className="font-medium text-green-800 mb-2">📧 Email</h4>
+                  <h4 className="font-medium text-green-800 mb-2">Email</h4>
                   <p className="text-green-700">contacto@cleanandgarden.cl</p>
                 </div>
                 <div>
-                  <h4 className="font-medium text-green-800 mb-2">📱 WhatsApp</h4>
+                  <h4 className="font-medium text-green-800 mb-2">WhatsApp</h4>
                   <p className="text-green-700">+56 9 1234 5678</p>
                 </div>
                 <div>
-                  <h4 className="font-medium text-green-800 mb-2">🕒 Horarios de Atención</h4>
+                  <h4 className="font-medium text-green-800 mb-2">Horarios de Atención</h4>
                   <p className="text-green-700">Lunes a Viernes: 8:00 - 18:00</p>
                   <p className="text-green-700">Sábados: 9:00 - 14:00</p>
                 </div>
                 <div>
-                  <h4 className="font-medium text-green-800 mb-2">📍 Ubicación</h4>
+                  <h4 className="font-medium text-green-800 mb-2">Ubicación</h4>
                   <p className="text-green-700">Santiago, Chile</p>
                 </div>
               </div>
