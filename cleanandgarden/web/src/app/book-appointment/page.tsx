@@ -162,12 +162,19 @@ export default function BookAppointmentPage() {
 							console.debug('load regiones failed', err)
 						}
 
-						// cargar servicios
+						// cargar servicios y normalizar shape (algunos endpoints devuelven nombre/precio_clp)
 						try {
 							const sRes = await fetch(`${API}/servicios`)
 							if (sRes.ok) {
 								const sBody = await sRes.json()
-								setServicios(Array.isArray(sBody) ? sBody : [])
+								const items = Array.isArray(sBody) ? sBody : []
+								// normalizar a { id, title, precio }
+								const mapped = items.map((it: any) => ({
+									id: it.id,
+									title: it.title ?? it.nombre ?? it.name ?? "",
+									precio: it.precio ?? it.precio_clp ?? it.price ?? null,
+								}))
+								setServicios(mapped)
 							}
 						} catch (err) {
 							console.debug('load servicios failed', err)
