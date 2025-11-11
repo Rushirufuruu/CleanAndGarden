@@ -1,11 +1,11 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-export default function PagoTestPage() {
+function PagoTestContent() {
   const [loading, setLoading] = useState(true)
   const [citas, setCitas] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -243,5 +243,20 @@ export default function PagoTestPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function PagoTestPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    }>
+      <PagoTestContent />
+    </Suspense>
   )
 }

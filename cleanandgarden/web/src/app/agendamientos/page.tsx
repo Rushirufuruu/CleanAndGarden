@@ -1,12 +1,13 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, Suspense } from "react"
 import Swal from 'sweetalert2'
 import { useRouter, useSearchParams } from "next/navigation"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-export default function AgendamientosPage() {
+// Componente que usa useSearchParams envuelto en Suspense
+function AgendamientosContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -636,5 +637,21 @@ export default function AgendamientosPage() {
       )}
 
     </div>
+  )
+}
+
+// Componente principal con Suspense boundary
+export default function AgendamientosPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Cargando agendamientos...</p>
+        </div>
+      </div>
+    }>
+      <AgendamientosContent />
+    </Suspense>
   )
 }
