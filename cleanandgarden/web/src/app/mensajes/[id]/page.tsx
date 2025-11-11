@@ -157,9 +157,9 @@ export default function ConversacionPage({
             <ArrowLeft className="h-6 w-6" />
           </Link>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white uppercase">
               {otroUsuario
-                  ? `${otroUsuario.nombre[0]}${otroUsuario.apellido[0]}`
+                  ? `${(otroUsuario.nombre?.[0] || '').toUpperCase()}${(otroUsuario.apellido?.[0] || '').toUpperCase()}`
                   : '??'}
             </div>
             <div>

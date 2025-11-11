@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
@@ -12,6 +13,14 @@ export default function Navbar() {
   const [loading, setLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [showAgendaMenu, setShowAgendaMenu] = useState(false);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current as any);
+    };
+  }, []);
 
   // Detectar cliente
   useEffect(() => setIsClient(true), []);
@@ -173,9 +182,50 @@ export default function Navbar() {
           <li><Link href="/about-us">Quienes Somos</Link></li>
           <li><Link href="/our-services">Servicios</Link></li>
           <li><Link href="/portfolio">Portafolio</Link></li>
-          <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+          {/* Agenda dropdown: solo mostrar para clientes, no para admin/jardinero/tecnico */}
+          {(!isLoggedIn || (userRole !== "admin" && userRole !== "jardinero" && userRole !== "tecnico")) && (
+            <li className="relative">
+              {/* timeout ref and handlers */}
+              {/* defined above in component scope */}
+              <button
+                onClick={() => setShowAgendaMenu((s) => !s)}
+                onMouseEnter={() => {
+                  if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+                  setShowAgendaMenu(true);
+                }}
+                onMouseLeave={() => {
+                  closeTimeoutRef.current = setTimeout(() => setShowAgendaMenu(false), 150);
+                }}
+                className="px-3 py-2 rounded hover:bg-gray-100 transition relative z-20"
+              >
+                Agenda ▾
+              </button>
 
-          {/* Panel admin */}
+              {showAgendaMenu && (
+                <ul
+                  className="absolute left-0 top-full mt-1 w-48 bg-white border border-gray-200 shadow-lg rounded-lg z-10 overflow-hidden"
+                  onMouseEnter={() => {
+                    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+                    setShowAgendaMenu(true);
+                  }}
+                  onMouseLeave={() => {
+                    closeTimeoutRef.current = setTimeout(() => setShowAgendaMenu(false), 150);
+                  }}
+                >
+                  <li>
+                    <Link href="/book-appointment" className="block px-4 py-2 text-gray-700 hover:bg-[#f5e9d7]">
+                      Agenda tu hora
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/agendamientos" className="block px-4 py-2 text-gray-700 hover:bg-[#f5e9d7]">
+                      Ver tus agendamientos
+                    </Link>
+                  </li>
+                </ul>
+              )}
+            </li>
+          )}          {/* Panel admin */}
           {isLoggedIn && userRole === "admin" && (
             <li className="relative">
               <button
@@ -280,6 +330,18 @@ export default function Navbar() {
               )}
             </li>
           )}
+
+          {/* Panel jardinero/técnico */}
+          {isLoggedIn && (userRole === "jardinero" || userRole === "tecnico") && (
+            <li>
+              <Link
+                href="/agendamientos-jardinero"
+                className="flex items-center gap-2 bg-[#2E5430] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#1f3a23] transition-all shadow-sm"
+              >
+                <Wrench size={18} /> Mis Citas
+              </Link>
+            </li>
+          )}
         </ul>
       </div>
 
@@ -367,7 +429,33 @@ export default function Navbar() {
             <li><Link href="/about-us">Quienes Somos</Link></li>
             <li><Link href="/our-services">Servicios</Link></li>
             <li><Link href="/portfolio">Portafolio</Link></li>
-            <li><Link href="/book-appointment">Agenda tu hora</Link></li>
+            <li
+              className="relative"
+              onMouseEnter={() => setShowAgendaMenu(true)}
+              onMouseLeave={() => setShowAgendaMenu(false)}
+            >
+              <button
+                onClick={() => setShowAgendaMenu((s) => !s)}
+                className="px-3 py-2 rounded hover:bg-gray-100 transition"
+              >
+                Agenda ▾
+              </button>
+
+              {showAgendaMenu && (
+                <ul className="absolute left-0 mt-2 w-48 bg-white border border-gray-200 shadow-lg rounded-lg z-50 overflow-hidden">
+                  <li>
+                    <Link href="/book-appointment" className="block px-4 py-2 text-gray-700 hover:bg-[#f5e9d7]">
+                      Agenda tu hora
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/book-appointment#mis-citas" className="block px-4 py-2 text-gray-700 hover:bg-[#f5e9d7]">
+                      Ver tus citas
+                    </Link>
+                  </li>
+                </ul>
+              )}
+            </li>
             {!isLoggedIn ? (
               <li>
                 <Link href="/login">
