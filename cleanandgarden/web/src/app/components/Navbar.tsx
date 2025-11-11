@@ -31,7 +31,7 @@ export default function Navbar() {
 
     const checkSession = async () => {
       try {
-        const res = await fetch("http://localhost:3001/profile", {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
           method: "GET",
           credentials: "include",
         });
@@ -125,7 +125,7 @@ export default function Navbar() {
     if (!result.isConfirmed) return;
 
     try {
-      const res = await fetch("http://localhost:3001/logout", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/logout`, {
         method: "POST",
         credentials: "include",
       });
@@ -300,7 +300,7 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <Wrench size={18} /> Gestión de Servicios
+                       Gestión de Servicios
                     </Link>
                   </li>
                   <li>
@@ -309,7 +309,16 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
                       onClick={() => setShowAdminMenu(false)}
                     >
-                      <Images size={18} /> Gestión de Portafolio
+                       Gestión de Portafolio
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/gestion-comentarios"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Gestión de Comentarios
                     </Link>
                   </li>
                   <li>

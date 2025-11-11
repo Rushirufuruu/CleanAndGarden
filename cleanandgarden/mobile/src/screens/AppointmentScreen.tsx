@@ -6,62 +6,63 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export default function AppointmentScreen() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAppointments = async () => {
       try {
         setLoading(true);
 
-        // ⚙️ Obtener usuario autenticado
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const userEmail = userData?.user?.email;
+        // Obtener info de usuario
+        const email = await AsyncStorage.getItem("userEmail");
+        const storedRole = await AsyncStorage.getItem("userRole");
+        setRole(storedRole);
 
-        if (!userEmail) {
-          Alert.alert("Error", "No se encontró el usuario autenticado.");
+        console.log("📧 Email:", email);
+        console.log("👤 Rol:", storedRole);
+
+        if (!email) {
+          Alert.alert("Error", "No se pudo obtener la sesión. Inicia sesión nuevamente.");
           return;
         }
 
-        // 🔍 Buscar el ID del usuario en la tabla "usuario"
-        const { data: usuario, error: usuarioError } = await supabase
-          .from("usuario")
-          .select("id")
-          .eq("email", userEmail)
-          .single();
+        let url = "";
 
-        if (usuarioError) throw usuarioError;
+        if (storedRole === "admin") {
+          url = `${API_URL}/citas/all`; // 🔸 Endpoint para admins
+        } else {
+          url = `${API_URL}/citas/${encodeURIComponent(email)}`; // 🔸 Endpoint cliente
+        }
 
-        // 📅 Obtener las citas del cliente autenticado
-        const { data, error } = await supabase
-          .from("cita")
-          .select(`
-            id,
-            fecha_hora,
-            estado,
-            precio_aplicado,
-            notas_cliente,
-            nombre_servicio_snapshot,
-            servicio (
-              nombre,
-              precio_clp
-            )
-          `)
-          .eq("cliente_id", usuario.id)
-          .order("fecha_hora", { ascending: true });
+        console.log("🌐 URL completa:", url);
 
-        if (error) throw error;
+        const res = await fetch(url);
+        
+        console.log("📡 Status:", res.status);
+        console.log("📡 OK:", res.ok);
 
-        setAppointments(data || []);
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error("❌ Error del servidor:", errorText);
+          throw new Error("Error al obtener citas");
+        }
+
+        const data = await res.json();
+        console.log("✅ Citas obtenidas:", data.length);
+        setAppointments(data);
       } catch (err: any) {
-        console.error("Error al cargar citas:", err.message);
+        console.error("❌ Error al cargar citas:", err);
         Alert.alert("Error", err.message || "No se pudieron cargar las citas.");
       } finally {
         setLoading(false);
@@ -83,13 +84,13 @@ export default function AppointmentScreen() {
     });
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} activeOpacity={0.8}>
         <View style={styles.row}>
           <Ionicons name="leaf-outline" size={24} color="#2E5430" />
           <View style={{ flex: 1 }}>
             <Text style={styles.servicio}>{nombreServicio}</Text>
             <Text style={styles.fecha}>
-              📅 {fechaLocal} — 🕒 {horaLocal}
+              {fechaLocal} — {horaLocal}
             </Text>
           </View>
           <Text
@@ -105,37 +106,46 @@ export default function AppointmentScreen() {
           </Text>
         </View>
 
-        {precio && (
-          <Text style={styles.precio}>
-            💰 {parseFloat(precio).toLocaleString("es-CL")} CLP
+        {role === "admin" && item.cliente && (
+          <Text style={styles.adminCliente}>
+            Cliente: {item.cliente.nombre || item.cliente.email}
           </Text>
         )}
-        {item.notas_cliente && (
-          <Text style={styles.notas}>📝 {item.notas_cliente}</Text>
+
+        {precio && (
+          <Text style={styles.precio}>
+            {parseFloat(precio).toLocaleString("es-CL")} CLP
+          </Text>
         )}
-      </View>
+
+        {item.notas_cliente && (
+          <Text style={styles.notas}>{item.notas_cliente}</Text>
+        )}
+      </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
-        {/* Encabezado */}
         <View style={styles.header}>
-          <Text style={styles.title}>🗓️ Tus horas agendadas</Text>
+          <Text style={styles.title}>
+            {role === "admin" ? "Todas las citas" : "Tus citas agendadas"}
+          </Text>
           <Text style={styles.subtitle}>
-            Consulta tus servicios programados fácilmente.
+            {role === "admin"
+              ? "Visualiza todas las citas registradas."
+              : "Consulta tus servicios programados fácilmente."}
           </Text>
         </View>
 
-        {/* Contenido */}
         {loading ? (
           <ActivityIndicator color="#2E5430" size="large" style={{ marginTop: 50 }} />
         ) : appointments.length === 0 ? (
           <View style={{ alignItems: "center", marginTop: 50 }}>
             <Ionicons name="calendar-outline" size={60} color="#94A3B8" />
             <Text style={{ color: "#6B7280", marginTop: 10 }}>
-              No tienes citas agendadas por ahora.
+              No hay citas registradas.
             </Text>
           </View>
         ) : (
@@ -154,7 +164,7 @@ export default function AppointmentScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fefaf2", // mismo color del fondo
+    backgroundColor: "#fefaf2",
   },
   container: {
     flex: 1,
@@ -215,5 +225,11 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 13,
     marginLeft: 28,
+  },
+  adminCliente: {
+    marginLeft: 28,
+    fontSize: 13,
+    color: "#2E5430",
+    fontWeight: "500",
   },
 });

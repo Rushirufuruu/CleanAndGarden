@@ -28,9 +28,9 @@ export default function PortfolioAdminPage() {
     try {
       setIsLoading(true);
       setError(null);
-      
-      const response = await fetch('http://localhost:3001/admin/portfolio');
-      
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/portfolio`);
+
       if (!response.ok) {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html")) {
@@ -82,7 +82,7 @@ export default function PortfolioAdminPage() {
     
     if (result.isConfirmed) {
       try {
-        const response = await fetch(`http://localhost:3001/admin/portfolio/${id}/toggle-publish`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/portfolio/${id}/toggle-publish`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',

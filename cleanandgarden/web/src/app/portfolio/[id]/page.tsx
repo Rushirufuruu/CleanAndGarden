@@ -37,7 +37,7 @@ export default function PortfolioDetailPage() {
 
       try {
         setIsLoading(true);
-        const response = await fetch(`http://localhost:3001/portfolio/${id}`);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/portfolio/${id}`);
         
         if (!response.ok) {
           if (response.status === 404) {

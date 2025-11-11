@@ -46,7 +46,7 @@ export default function RegisterPage() {
 
   // Cargar regiones al inicio
   useEffect(() => {
-    fetch("http://localhost:3001/regiones")
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/regiones`)
       .then((res) => res.json())
       .then((data) => setRegiones(data))
       .catch(() => {
@@ -58,7 +58,7 @@ export default function RegisterPage() {
   // Cargar comunas cuando cambia la región
   useEffect(() => {
     if (regionId) {
-      fetch(`http://localhost:3001/regiones/${regionId}/comunas`)
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/regiones/${regionId}/comunas`)
         .then((res) => res.json())
         .then((data) => setComunas(data))
         .catch(() => {
@@ -129,7 +129,7 @@ export default function RegisterPage() {
     }
 
     try {
-      const res = await fetch("http://localhost:3001/usuario", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/usuario`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

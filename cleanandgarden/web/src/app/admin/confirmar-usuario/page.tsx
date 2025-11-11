@@ -20,7 +20,7 @@ function ConfirmarUsuarioContent() {
       }
 
       try {
-        const res = await fetch(`http://localhost:3001/admin/confirmar-usuario/${token}`);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/confirmar-usuario/${token}`);
         const data = await res.json();
 
         if (!res.ok) {

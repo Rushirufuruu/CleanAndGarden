@@ -33,12 +33,43 @@ declare global {
 }
 
 // Creamos la app de Express (hay que pensarlo como el "router" principal de la API)
-const app = express()
-// Habilita CORS: permite que el front pueda llamar a la api
-app.use(cors({
-  origin: "http://localhost:3000", //  dirección exacta de tu frontend
-  credentials: true,               //  habilita envío de cookies
-}));
+
+
+const app = express();
+
+// ==========================================
+// CONFIGURACIÓN CORS (Railway + Vercel + Local + Mobile)
+// ==========================================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:19006",
+  "exp://127.0.0.1:19000",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Mobile apps (React Native/Expo) often don't send an origin header
+      if (!origin) return callback(null, true);
+
+      // Permite localhost, Expo y cualquier dominio *.vercel.app
+      const isLocalOrExpo = allowedOrigins.includes(origin);
+      const isVercelDomain = /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin);
+
+      if (isLocalOrExpo || isVercelDomain) {
+        callback(null, true);
+      } else {
+        console.warn(`CORS bloqueado para origen no permitido: ${origin}`);
+        callback(new Error("No autorizado por CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
+
+
+
+
 
 app.use(express.json());
 app.use(cookieParser());
@@ -611,47 +642,35 @@ app.patch('/admin/portfolio/:id/toggle-publish', async (req, res) => {
   }
 });
 
+//falta el eliminar  portafolio
+
 // Obtener servicios activos
 app.get('/servicios', async (req, res) => {
-  try {
-    const servicios = await prisma.servicio.findMany({
-      where: { 
-        activo: true 
-      },
-      select: {
-        id: true,
-        nombre: true,
-        descripcion: true,
-        duracion_minutos: true,
-        precio_clp: true,
-        imagen: {
-          select: {
-            url_publica: true,
-            clave_storage: true
-          }
-        }
-      },
-      orderBy: { 
-        nombre: 'asc' 
-      }
-    });
+  const servicios = await prisma.servicio.findMany({
+    where: { activo: true },
+    select: {
+      id: true,
+      nombre: true,
+      descripcion: true,
+      duracion_minutos: true,
+      precio_clp: true,
+      imagen: { select: { url_publica: true } }
+    }
+  });
 
-    // Transformar los datos para el frontend
-    const serviciosFormatted = servicios.map(servicio => ({
-      id: String(servicio.id),
-      title: servicio.nombre,
-      description: servicio.descripcion || 'Servicio profesional de calidad.',
-      imageUrl: servicio.imagen?.url_publica || '/images/placeholder-service.jpg',
-      duracion: servicio.duracion_minutos || 0,
-      precio: servicio.precio_clp ? Number(servicio.precio_clp) : null
-    }));
+  const serviciosFormatted = servicios.map(s => ({
+    id: Number(s.id),
+    nombre: s.nombre,
+    descripcion: s.descripcion,
+    duracion: s.duracion_minutos || 0, 
+    precio: s.precio_clp ? Number(s.precio_clp) : 0, 
+    imagenUrl: s.imagen?.url_publica || null, 
+    activo: true
+  }));
 
-    res.json(toJSONSafe(serviciosFormatted));
-  } catch (err: any) {
-    console.error(" Error al obtener servicios:", err);
-    res.status(500).json({ error: err.message ?? 'Error al obtener servicios' });
-  }
+  res.json(toJSONSafe(serviciosFormatted));
 });
+
 
 // Obtener todos los servicios para admin (incluye inactivos)
 app.get('/admin/servicios', async (req, res) => {
@@ -1351,13 +1370,22 @@ app.post("/login", async (req, res) => {
       rol: usuario.rol.codigo,
     });
 
-    // Guardar cookie con el token
+    // Guardar cookie LOCAL
+    //res.cookie("token", token, {
+    //  httpOnly: true,
+    //  secure: false, // cambia a true en producción
+    //  sameSite: "lax",
+    //  maxAge:  24 * 60 * 60 * 1000, // 24 horas
+    //});
+
+    // Guardar cookie PARA PRODUCCION
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false, // cambia a true en producción
-      sameSite: "lax",
-      maxAge:  24 * 60 * 60 * 1000, // 24 horas
+      secure: process.env.NODE_ENV === "production",  // exige HTTPS
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 24 * 60 * 60 * 1000
     });
+    console.log('entorno',process.env.NODE_ENV)
 
     // Detectar si faltan datos obligatorios
     const faltanDatos =
@@ -1576,7 +1604,7 @@ app.post("/reset-password", async (req: Request, res: Response) => {
 app.post("/logout", (_req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     secure: process.env.NODE_ENV === "production",
   });
   res.json({ message: "Sesión cerrada correctamente" });
@@ -2492,6 +2520,7 @@ app.post("/admin/registro-usuario", authMiddleware, async (req, res) => {
     // Enviar correo de confirmación
     const transporter = nodemailer.createTransport({
       service: "gmail",
+      pool: true,
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
 
@@ -3114,14 +3143,15 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
     // Para cada slot, obtener las citas asociadas con detalles
     const disponibilidadConCitas = await Promise.all(
       disponibilidad.map(async (slot) => {
+        const citaDate = new Date(slot.hora_inicio);
         const citas = await prisma.cita.findMany({
           where: {
             tecnico_id: slot.tecnico_id,
             fecha_hora: {
-              gte: slot.hora_inicio,
-              lt: slot.hora_fin
+              gte: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate()),
+              lt: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate() + 1),
             },
-            estado: { in: ['pendiente', 'confirmada'] }
+            estado: { in: ['pendiente', 'confirmada', 'realizada'] }
           },
           include: {
             jardin: { select: { id: true, nombre: true } },
@@ -3130,6 +3160,9 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
           },
           orderBy: { fecha_creacion: 'asc' }
         });
+
+        console.log(`ADMIN - Slot ${slot.id} (${slot.fecha} ${slot.hora_inicio}) - Citas encontradas: ${citas.length}`);
+        citas.forEach(c => console.log(`  Cita ${c.id}: ${c.fecha_hora} - ${c.estado}`));
 
         return {
           ...slot,
@@ -4440,11 +4473,15 @@ console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
 console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
 
 
-const port = Number(process.env.PORT ?? 3001);
+// ====================================================================================
+// Configuración del puerto dinámico (Railway, Render, etc.)
+// ====================================================================================
+const PORT = Number(process.env.PORT) || 8080;
 const server = createServer(app);
-server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
+server.listen(PORT, () => {
+  console.log(`API backend + WebSocket listening on port ${PORT}`);
+});
 
-// Inicializar WebSocket sobre el mismo servidor HTTP
 global.chatWebSocketInstance = new ChatWebSocket(server);
 
 // 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
@@ -5125,3 +5162,595 @@ app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Error interno al completar la cita" });
   }
 });
+// ==========================================
+// ==========================================
+// OBTENER TODAS LAS CITAS (PARA ADMIN)
+// ==========================================
+app.get("/citas/all", async (req, res) => {
+  try {
+    const citas = await prisma.cita.findMany({
+      include: {
+        servicio: { select: { nombre: true, precio_clp: true } },
+        usuario_cita_cliente_idTousuario: {
+          select: { id: true, nombre: true, apellido: true, email: true },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    const formatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+      cliente: cita.usuario_cita_cliente_idTousuario
+        ? {
+            id: Number(cita.usuario_cita_cliente_idTousuario.id),
+            nombre: cita.usuario_cita_cliente_idTousuario.nombre,
+            apellido: cita.usuario_cita_cliente_idTousuario.apellido,
+            email: cita.usuario_cita_cliente_idTousuario.email,
+          }
+        : null,
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    console.error("❌ Error al obtener todas las citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// OBTENER CITAS POR EMAIL DEL CLIENTE
+// ==========================================
+app.get("/citas/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un correo electrónico" });
+    }
+
+    // Buscar usuario por correo
+    const usuario = await prisma.usuario.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(usuario.id) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /citas/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR SUPABASE AUTH_ID
+// ==========================================
+app.get("/usuario/:userId/info", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: "Debe proporcionar un ID de usuario" });
+    }
+
+    console.log(`👤 Buscando info para usuario ID (Supabase): ${userId}`);
+
+    // Como no existe auth_id, buscar por email que viene en el parámetro
+    // O mejor aún, usar el endpoint con email directamente
+    return res.status(400).json({ 
+      error: "Use el endpoint /usuario/info/email/:email en su lugar" 
+    });
+  } catch (error) {
+    console.error("❌ Error en /usuario/:userId/info:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR EMAIL
+// ==========================================
+app.get("/usuario/info/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un email" });
+    }
+
+    console.log(`👤 Buscando info para usuario email: ${email}`);
+
+    // Buscar usuario por email
+    const usuario = await prisma.usuario.findUnique({
+      where: { email: decodeURIComponent(email) },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        telefono: true,
+        rol: {
+          select: {
+            nombre: true,
+            codigo: true,
+          },
+        },
+      },
+    });
+
+    if (!usuario) {
+      console.log(`❌ Usuario no encontrado con email: ${email}`);
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    console.log(`✅ Usuario encontrado: ${usuario.nombre} ${usuario.apellido}`);
+
+    // Formatear respuesta
+    const userInfo = {
+      id: Number(usuario.id),
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email,
+      telefono: usuario.telefono,
+      rol: usuario.rol ? usuario.rol.nombre : null,
+      rolCodigo: usuario.rol ? usuario.rol.codigo : null,
+    };
+
+    res.json(userInfo);
+  } catch (error) {
+    console.error("❌ Error en /usuario/info/email/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER CITAS DEL USUARIO AUTENTICADO (ALTERNATIVO)
+// ==========================================
+app.get("/api/mis-citas", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+
+    console.log("📋 Buscando citas para usuario ID:", userId);
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(userId) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    console.log(`✅ Encontradas ${citas.length} citas`);
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /api/mis-citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+//========================================================================
+//COMENTARIOS CLIENTE
+//========================================================================
+
+//  Crear comentario (con hora local devuelta)
+
+
+import tz from "dayjs/plugin/timezone";
+dayjs.extend(utc);
+dayjs.extend(tz);
+
+
+app.post("/comentarios", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { contenido } = req.body;
+    const user = (req as any).user;
+
+    if (!user) {
+      return res.status(401).json({ error: "No autorizado. Debes iniciar sesión." });
+    }
+
+    // 🔒 Solo clientes pueden comentar
+    const usuarioDB = await prisma.usuario.findUnique({
+      where: { id: BigInt(user.id) },
+      select: { nombre: true, apellido: true, rol: { select: { codigo: true } } },
+    });
+
+    if (!usuarioDB) return res.status(404).json({ error: "Usuario no encontrado." });
+
+    if (usuarioDB.rol.codigo !== "cliente") {
+      return res.status(403).json({ error: "Solo los clientes pueden dejar comentarios." });
+    }
+
+    if (!contenido || contenido.trim() === "") {
+      return res.status(400).json({ error: "El comentario no puede estar vacío." });
+    }
+
+    // Hora local Chile
+    const creadoEnLocal = dayjs().tz("America/Santiago");
+
+    const nuevoComentario = await prisma.comentario.create({
+      data: {
+        usuario_id: BigInt(user.id),
+        contenido,
+        activo: true,
+        creado_en: creadoEnLocal.toDate(),
+      },
+    });
+
+    const fechaFormateada = creadoEnLocal.format("DD-MM-YYYY");
+
+    const comentarioLocal = {
+      ...toJSONSafe(nuevoComentario),
+      usuario: usuarioDB,
+      fecha: fechaFormateada,
+    };
+
+    res.status(201).json({
+      message: "Comentario creado correctamente.",
+      comentario: comentarioLocal,
+    });
+  } catch (error) {
+    console.error("❌ Error al crear comentario:", error);
+    res.status(500).json({ error: "Error interno al crear comentario." });
+  }
+});
+
+
+
+
+//listar todos los comentarios 
+
+app.get("/comentarios", async (req: Request, res: Response) => {
+  try {
+    // Solo mostrar comentarios activos
+    const comentarios = await prisma.comentario.findMany({
+      where: { activo: true },
+      orderBy: { creado_en: "desc" },
+      include: {
+        usuario: {
+          select: { nombre: true, apellido: true },
+        },
+      },
+    });
+
+    // Convertimos formato para el frontend
+    const data = comentarios.map((c) => ({
+      id: Number(c.id),
+      usuario_id: Number(c.usuario_id), // 🔥 necesario para el front
+      contenido: c.contenido,
+      nombre: c.usuario?.nombre || "Usuario",
+      apellido: c.usuario?.apellido || "",
+      fecha: c.creado_en
+        ? new Date(c.creado_en)
+            .toLocaleDateString("es-CL", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              timeZone: "America/Santiago",
+            })
+            .replace(/\//g, "-") // convierte 04/11/2025 → 04-11-2025
+        : "",
+    }));
+
+    // ✅ Enviamos respuesta segura (sin BigInt)
+    res.json(JSON.parse(JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v))));
+  } catch (error) {
+    console.error("❌ Error al obtener comentarios:", error);
+    res.status(500).json({ error: "Error al obtener comentarios" });
+  }
+});
+
+
+// ====================
+//  EDITAR COMENTARIO (solo el autor puede hacerlo)
+// ====================
+
+app.put("/comentarios/:id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { contenido } = req.body;
+    const user = (req as any).user;
+
+    if (!contenido?.trim()) {
+      return res.status(400).json({ error: "El comentario no puede estar vacío." });
+    }
+
+    const usuarioDB = await prisma.usuario.findUnique({
+      where: { id: BigInt(user.id) },
+      select: { rol: { select: { codigo: true } } },
+    });
+
+    if (!usuarioDB || usuarioDB.rol.codigo !== "cliente") {
+      return res.status(403).json({ error: "Solo los clientes pueden editar comentarios." });
+    }
+
+    const comentario = await prisma.comentario.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!comentario) {
+      return res.status(404).json({ error: "Comentario no encontrado." });
+    }
+
+    if (comentario.usuario_id !== BigInt(user.id)) {
+      return res.status(403).json({ error: "No tienes permiso para modificar este comentario." });
+    }
+
+    const actualizado = await prisma.comentario.update({
+      where: { id: BigInt(id) },
+      data: { contenido },
+    });
+
+    res.json({
+      message: "Comentario actualizado correctamente ✅",
+      comentario: toJSONSafe(actualizado),
+    });
+  } catch (error) {
+    console.error("❌ Error al editar comentario:", error);
+    res.status(500).json({ error: "Error al editar comentario." });
+  }
+});
+
+
+
+
+// ====================
+//  ELIMINAR COMENTARIO (solo el autor puede hacerlo)
+// ====================
+
+app.delete("/comentarios/:id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const user = (req as any).user;
+
+    const usuarioDB = await prisma.usuario.findUnique({
+      where: { id: BigInt(user.id) },
+      select: { rol: { select: { codigo: true } } },
+    });
+
+    if (!usuarioDB || usuarioDB.rol.codigo !== "cliente") {
+      return res.status(403).json({ error: "Solo los clientes pueden eliminar comentarios." });
+    }
+
+    const comentario = await prisma.comentario.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!comentario) {
+      return res.status(404).json({ error: "Comentario no encontrado." });
+    }
+
+    if (comentario.usuario_id !== BigInt(user.id)) {
+      return res.status(403).json({ error: "No tienes permiso para eliminar este comentario." });
+    }
+
+    await prisma.comentario.delete({
+      where: { id: BigInt(id) },
+    });
+
+    res.json({ message: "Comentario eliminado correctamente ✅" });
+  } catch (error) {
+    console.error("❌ Error al eliminar comentario:", error);
+    res.status(500).json({ error: "Error al eliminar comentario." });
+  }
+});
+
+
+//========================================================================
+//GESTION DE COMENTARIOS ADMIN
+//========================================================================
+
+// =======================================
+// LISTAR COMENTARIOS (PANEL ADMIN)
+// =======================================
+app.get("/admin/comentarios", verifyAdmin, async (_req, res) => {
+  try {
+    const comentarios = await prisma.comentario.findMany({
+      orderBy: { creado_en: "desc" },
+      include: {
+        usuario: {
+          select: { nombre: true, apellido: true, email: true },
+        },
+      },
+    });
+
+    const comentariosSafe = comentarios.map((c) => ({
+      id: Number(c.id),
+      usuario_id: Number(c.usuario_id),
+      nombre: c.usuario?.nombre || "Usuario",
+      apellido: c.usuario?.apellido || "",
+      email: c.usuario?.email || "",
+      contenido: c.contenido,
+      activo: c.activo,
+      fecha: c.creado_en
+        ? new Date(c.creado_en)
+            .toLocaleDateString("es-CL", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              timeZone: "America/Santiago",
+            })
+            .replace(/\//g, "-")
+        : "",
+    }));
+
+    res.json(toJSONSafe(comentariosSafe));
+  } catch (err: any) {
+    console.error("❌ Error al listar comentarios:", err.message);
+    res.status(500).json({ error: "Error al listar comentarios" });
+  }
+});
+
+
+// =======================================
+// CAMBIAR ESTADO DE COMENTARIO
+// =======================================
+app.put("/admin/comentarios/:id/estado", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activo } = req.body;
+
+    const comentario = await prisma.comentario.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!comentario)
+      return res.status(404).json({ error: "Comentario no encontrado." });
+
+    const actualizado = await prisma.comentario.update({
+      where: { id: BigInt(id) },
+      data: { activo },
+    });
+
+    res.json({
+      message: `Comentario ${activo ? "activado" : "desactivado"} correctamente ✅`,
+      comentario: toJSONSafe(actualizado),
+    });
+  } catch (err: any) {
+    console.error("❌ Error al cambiar estado:", err.message);
+    res.status(500).json({ error: "Error al cambiar estado del comentario" });
+  }
+});
+
+// =======================================
+// ELIMINAR COMENTARIO (ADMIN)
+// =======================================
+app.delete("/admin/comentarios/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const comentario = await prisma.comentario.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!comentario)
+      return res.status(404).json({ error: "Comentario no encontrado." });
+
+    await prisma.comentario.delete({ where: { id: BigInt(id) } });
+
+    res.json({ message: "Comentario eliminado correctamente 🗑️" });
+  } catch (err: any) {
+    console.error("❌ Error al eliminar comentario:", err.message);
+    res.status(500).json({ error: "Error al eliminar comentario" });
+  }
+});
+
+
+
+
+
+
+//====================================================================================================
+// Verificar variables de entorno al inicio
+console.log("Verificando configuración...");
+console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Configurado" : "Falta");
+console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Configurado" : "Falta");
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "Falta");
+console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Configurado" : "Falta");
+
+
+//const port = Number(process.env.PORT ?? 3001);
+//const server = createServer(app);
+//server.listen(port, () => console.log(`🚀 API backend + WebSocket listening on port ${port}`));
+
+
+//global.chatWebSocketInstance = new ChatWebSocket(server);
+
+// 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
+setInterval(async () => {
+  try {
+    const now = new Date();
+
+    const deletedConfirm = await prisma.confirm_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const deletedReset = await prisma.reset_token.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+
+    const total = deletedConfirm.count + deletedReset.count;
+    if (total > 0) {
+      console.log(
+        `Tokens expirados eliminados: ${total} (confirm: ${deletedConfirm.count}, reset: ${deletedReset.count})`
+      );
+    }
+  } catch (err) {
+    console.error("Error limpiando tokens expirados:", err);
+  }
+}, 5 * 60 * 1000); // cada 5 minutos

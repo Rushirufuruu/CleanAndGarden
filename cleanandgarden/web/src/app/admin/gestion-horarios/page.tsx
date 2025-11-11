@@ -1,7 +1,7 @@
-
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
+import { Pencil, Trash2, Eye } from "lucide-react";
 
 /**
  * Paleta "Clean & Garden"
@@ -80,7 +80,11 @@ export default function GestionHorarios() {
   };
 
   const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
+    new Date(iso).toLocaleTimeString("es-CL", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
 
   // Todas las fechas (YYYY-MM-DD) del mes visible
   const daysOfMonth = useMemo(() => {
@@ -89,7 +93,9 @@ export default function GestionHorarios() {
     const last = new Date(year, month + 1, 0).getDate();
     const arr: string[] = [];
     for (let i = 1; i <= last; i++) {
-      arr.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`);
+      arr.push(
+        `${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`
+      );
     }
     return arr;
   }, [mesActual]);
@@ -109,7 +115,6 @@ export default function GestionHorarios() {
   const groupedPreview = useMemo(() => groupByDate(preview), [preview]);
   const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
 
-
   // ¿Es fin de semana?
   const isWeekend = (yyyy_mm_dd: string) => {
     const [y, m, d] = yyyy_mm_dd.split("-").map(Number);
@@ -118,7 +123,6 @@ export default function GestionHorarios() {
     return dow === 0 || dow === 6; // dom/sáb
   };
 
- 
   // ===== Cargar usuarios con disponibilidad =====
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad/usuarios`, {
@@ -135,31 +139,34 @@ export default function GestionHorarios() {
       );
   }, []);
 
-
   // ===== Cargar horarios guardados del mes =====
   useEffect(() => {
     cargarGuardados(mesActual);
   }, [mesActual]);
 
   const cargarGuardados = async (fechaBase: Date) => {
-    const mes = `${fechaBase.getFullYear()}-${String(fechaBase.getMonth() + 1).padStart(2, "0")}`;
+    const mes = `${fechaBase.getFullYear()}-${String(
+      fechaBase.getMonth() + 1
+    ).padStart(2, "0")}`;
     try {
       const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad-mensual?mes=${mes}`,
-      { credentials: "include" }
-    );
-    const json = await res.json();
+        `${process.env.NEXT_PUBLIC_API_URL}/admin/disponibilidad-mensual?mes=${mes}`,
+        { credentials: "include" }
+      );
+      const json = await res.json();
 
-    // 👇 AQUÍ CAMBIA
-    // el backend ahora devuelve { data, excepciones }
-    const horarios = json?.data ?? [];
-    const excepcionesData = json?.excepciones ?? [];
+      // el backend ahora devuelve { data, excepciones }
+      const horarios = json?.data ?? [];
+      const excepcionesData = json?.excepciones ?? [];
 
-    setGuardados(horarios);
-    setExcepciones(excepcionesData);
-
+      setGuardados(horarios);
+      setExcepciones(excepcionesData);
     } catch {
-      Swal.fire("Error", "No se pudieron cargar los horarios guardados", "error");
+      Swal.fire(
+        "Error",
+        "No se pudieron cargar los horarios guardados",
+        "error"
+      );
     }
   };
 
@@ -266,7 +273,9 @@ export default function GestionHorarios() {
 
   // ❌ Eliminar todos los horarios del mes actual
   const eliminarMes = async () => {
-    const mes = `${mesActual.getFullYear()}-${String(mesActual.getMonth() + 1).padStart(2, "0")}`;
+    const mes = `${mesActual.getFullYear()}-${String(
+      mesActual.getMonth() + 1
+    ).padStart(2, "0")}`;
 
     const confirmar = await Swal.fire({
       title: "¿Eliminar todos los horarios?",
@@ -294,83 +303,99 @@ export default function GestionHorarios() {
       cargarGuardados(mesActual);
     } catch (err) {
       console.error(err);
-      Swal.fire("Error", "No se pudieron eliminar los horarios del mes", "error");
+      Swal.fire(
+        "Error",
+        "No se pudieron eliminar los horarios del mes",
+        "error"
+      );
     }
   };
 
-
   const puedeMostrarBotonCancelar = (cita: any) => {
     // Mostrar botón si está en estado pendiente o confirmada
-    return ['pendiente', 'confirmada'].includes(cita.estado)
-  }
+    return ["pendiente", "confirmada"].includes(cita.estado);
+  };
 
   const puedeCancelarCita = (cita: any) => {
     // Solo permitir cancelar si está en estado pendiente o confirmada
-    if (!['pendiente', 'confirmada'].includes(cita.estado)) {
-      return false
+    if (!["pendiente", "confirmada"].includes(cita.estado)) {
+      return false;
     }
 
     // Validar plazo de cancelación: hasta las 12:00 del día anterior
-    const fechaCita = new Date(cita.fecha_hora)
-    const deadline = new Date(fechaCita.getFullYear(), fechaCita.getMonth(), fechaCita.getDate() - 1, 12, 0, 0, 0)
-    const ahora = new Date()
+    const fechaCita = new Date(cita.fecha_hora);
+    const deadline = new Date(
+      fechaCita.getFullYear(),
+      fechaCita.getMonth(),
+      fechaCita.getDate() - 1,
+      12,
+      0,
+      0,
+      0
+    );
+    const ahora = new Date();
 
-    return ahora <= deadline
-  }
+    return ahora <= deadline;
+  };
 
   const cancelarCita = async (citaId: number) => {
     // Pedir confirmación con motivo opcional
     const { value: motivo } = await Swal.fire({
-      title: '¿Cancelar esta cita?',
-      text: 'Esta acción no se puede deshacer. El cliente será notificado.',
-      icon: 'warning',
-      input: 'textarea',
-      inputLabel: 'Motivo de cancelación (opcional)',
-      inputPlaceholder: 'Ej: Conflicto de horario, mantenimiento, etc.',
+      title: "¿Cancelar esta cita?",
+      text: "Esta acción no se puede deshacer. El cliente será notificado.",
+      icon: "warning",
+      input: "textarea",
+      inputLabel: "Motivo de cancelación (opcional)",
+      inputPlaceholder: "Ej: Conflicto de horario, mantenimiento, etc.",
       showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
-      confirmButtonText: 'Sí, cancelar cita',
-      cancelButtonText: 'No, mantener cita'
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Sí, cancelar cita",
+      cancelButtonText: "No, mantener cita",
     });
 
     if (motivo === undefined) return; // Usuario canceló
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cita/${citaId}/cancelar`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          motivo_cancelacion: motivo || null,
-          notas_cancelacion: null
-        })
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/cita/${citaId}/cancelar`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            motivo_cancelacion: motivo || null,
+            notas_cancelacion: null,
+          }),
+        }
+      );
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Error al cancelar la cita');
+        throw new Error(body.error || "Error al cancelar la cita");
       }
 
       // Mostrar éxito y recargar datos
       await Swal.fire({
-        icon: 'success',
-        title: 'Cita cancelada',
-        text: 'La cita ha sido cancelada exitosamente.',
+        icon: "success",
+        title: "Cita cancelada",
+        text: "La cita ha sido cancelada exitosamente.",
         timer: 2000,
-        showConfirmButton: false
+        showConfirmButton: false,
       });
 
       // Recargar los datos para reflejar los cambios
       cargarGuardados(mesActual);
       setModalOpen(false); // Cerrar modal si estaba abierto
-
     } catch (err: any) {
-      console.error('Error al cancelar cita:', err);
-      Swal.fire('Error', err?.message || 'Error al cancelar la cita', 'error');
+      console.error("Error al cancelar cita:", err);
+      Swal.fire(
+        "Error",
+        err?.message || "Error al cancelar la cita",
+        "error"
+      );
     }
   };
-
 
   // ✏️ Editar horario (hora de inicio y fin)
   const editarSlot = async (slot: Slot) => {
@@ -403,14 +428,20 @@ export default function GestionHorarios() {
       confirmButtonText: "Guardar cambios",
       cancelButtonText: "Cancelar",
       preConfirm: () => {
-        const horaInicio = (document.getElementById("horaInicio") as HTMLInputElement)?.value;
-        const horaFin = (document.getElementById("horaFin") as HTMLInputElement)?.value;
+        const horaInicio = (
+          document.getElementById("horaInicio") as HTMLInputElement
+        )?.value;
+        const horaFin = (
+          document.getElementById("horaFin") as HTMLInputElement
+        )?.value;
         if (!horaInicio || !horaFin) {
           Swal.showValidationMessage("Ambas horas son obligatorias");
           return null;
         }
         if (horaFin <= horaInicio) {
-          Swal.showValidationMessage("La hora de fin debe ser mayor a la de inicio");
+          Swal.showValidationMessage(
+            "La hora de fin debe ser mayor a la de inicio"
+          );
           return null;
         }
         return { horaInicio, horaFin };
@@ -457,7 +488,6 @@ export default function GestionHorarios() {
     }
   };
 
-
   // ===== UI =====
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#FAF8F3" }}>
@@ -478,12 +508,15 @@ export default function GestionHorarios() {
         <div
           onClick={() => setModalOpen(false)}
           className="fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-200"
-          style={{ backgroundColor: 'rgba(15,15,10,0.15)', backdropFilter: 'blur(4px)' }}
+          style={{ backgroundColor: "rgba(15,15,10,0.15)", backdropFilter: "blur(4px)" }}
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 shadow-lg">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 shadow-lg"
+          >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold" style={{ color: '#2E5430' }}>
+                <h3 className="text-lg font-semibold" style={{ color: "#2E5430" }}>
                   Detalle de reservas
                 </h3>
                 {modalSlot && (
@@ -493,32 +526,60 @@ export default function GestionHorarios() {
                 )}
               </div>
               <div>
-                <button onClick={() => setModalOpen(false)} className="px-3 py-1 rounded bg-gray-200">Cerrar</button>
+                <button
+                  onClick={() => setModalOpen(false)}
+                  className="px-3 py-1 rounded bg-gray-200"
+                >
+                  Cerrar
+                </button>
               </div>
             </div>
 
-                    <div className="space-y-3 max-h-72 overflow-auto">
+            <div className="space-y-3 max-h-72 overflow-auto">
               {modalCitas.length === 0 ? (
                 <div className="text-sm text-gray-600">No hay reservas.</div>
               ) : (
                 modalCitas.map((c: any) => (
                   <div key={c.id} className="border rounded p-3">
-                    <div className="font-medium">{c.usuario_cita_cliente_idTousuario?.nombre ?? c.nombre_cliente ?? 'Cliente'}</div>
-                    <div className="text-sm text-gray-600">Servicio: {(c.servicio?.nombre ?? c.nombre_servicio) || '—'}</div>
-                    <div className="text-sm text-gray-600">Jardín: {c.jardin?.nombre ?? '—'}</div>
-                    <div className="text-sm text-gray-600">Fecha y hora: {c.fecha_hora ? new Date(c.fecha_hora).toLocaleString('es-CL') : '—'}</div>
+                    <div className="font-medium">
+                      {c.usuario_cita_cliente_idTousuario?.nombre ??
+                        c.nombre_cliente ??
+                        "Cliente"}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Servicio: {c.servicio?.nombre ?? c.nombre_servicio ?? "—"}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Jardín: {c.jardin?.nombre ?? "—"}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Fecha y hora:{" "}
+                      {c.fecha_hora
+                        ? new Date(c.fecha_hora).toLocaleString("es-CL")
+                        : "—"}
+                    </div>
                     <div className="text-sm text-gray-600">Estado: {c.estado}</div>
-                    {c.notas_cliente && <div className="text-sm text-gray-700 mt-1">Notas: {c.notas_cliente}</div>}
+                    {c.notas_cliente && (
+                      <div className="text-sm text-gray-700 mt-1">
+                        Notas: {c.notas_cliente}
+                      </div>
+                    )}
                     {puedeMostrarBotonCancelar(c) && (
                       <div className="mt-3 flex justify-end">
                         <button
-                          onClick={() => puedeCancelarCita(c) ? cancelarCita(c.id) : null}
+                          onClick={() =>
+                            puedeCancelarCita(c) ? cancelarCita(c.id) : null
+                          }
                           disabled={!puedeCancelarCita(c)}
-                          title={!puedeCancelarCita(c) ? "Ya no puedes cancelar la hora. Si necesitas cancelarla o hacer alguna modificación, habla con un Administrador por mensaje" : "Cancelar cita"}
+                          title={
+                            !puedeCancelarCita(c)
+                              ? "Ya no puedes cancelar la hora. Si necesitas cancelarla o hacer alguna modificación, habla con un Administrador por mensaje"
+                              : "Cancelar cita"
+                          }
                           className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                             puedeCancelarCita(c)
-                              ? 'bg-red-500 hover:bg-red-600 text-white'
-                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              ? "bg-red-500 hover:bg-red-600 text-white"
+                              : "bg-gray-300 text-gray-500 cursor-not-allowed"
                           }`}
                         >
                           Cancelar Cita
@@ -551,7 +612,7 @@ export default function GestionHorarios() {
                 </label>
                 <input
                   type="date"
-                  min={today} // <-- evita seleccionar fechas pasadas
+                  min={today}
                   value={form.desde}
                   onChange={(e) => setForm({ ...form, desde: e.target.value })}
                   className="w-full rounded-md border px-3 py-2"
@@ -564,7 +625,7 @@ export default function GestionHorarios() {
                 </label>
                 <input
                   type="date"
-                  min={today} // <-- también aquí
+                  min={today}
                   value={form.hasta}
                   onChange={(e) => setForm({ ...form, hasta: e.target.value })}
                   className="w-full rounded-md border px-3 py-2"
@@ -654,7 +715,9 @@ export default function GestionHorarios() {
                       onClick={() =>
                         setForm((f) => ({
                           ...f,
-                          dias: active ? f.dias.filter((x) => x !== i) : [...f.dias, i],
+                          dias: active
+                            ? f.dias.filter((x) => x !== i)
+                            : [...f.dias, i],
                         }))
                       }
                       className="px-3 py-1 rounded-md border text-sm"
@@ -721,21 +784,21 @@ export default function GestionHorarios() {
                 className="px-4 py-2 rounded-md font-semibold"
                 style={{ backgroundColor: "#7BC043", color: "white" }}
               >
-                 Vista previa
+                Vista previa
               </button>
               <button
                 onClick={() => generar("append")}
                 className="px-4 py-2 rounded-md font-semibold"
                 style={{ backgroundColor: "#2E5430", color: "white" }}
               >
-                 Guardar (agregar)
+                Guardar (agregar)
               </button>
               <button
                 onClick={eliminarMes}
                 className="px-4 py-2 rounded-md font-semibold"
                 style={{ backgroundColor: "#B22222", color: "white" }}
               >
-                 Eliminar mes
+                Eliminar mes
               </button>
             </div>
           </div>
@@ -744,7 +807,7 @@ export default function GestionHorarios() {
 
       {/* Calendario mensual */}
       <div className="px-6 mt-8 pb-12">
-          {/* === Filtro por trabajador (nuevo) === */}
+        {/* === Filtro por trabajador (nuevo) === */}
         <div className="flex items-center gap-2 mb-4">
           <label className="text-sm font-semibold" style={{ color: "#2E5430" }}>
             Filtrar por trabajador:
@@ -772,17 +835,28 @@ export default function GestionHorarios() {
           <button
             onClick={() => cambiarMes(-1)}
             className="px-3 py-2 rounded-md border"
-            style={{ borderColor: "#8B6B4A", color: "#2E5430", backgroundColor: "white" }}
+            style={{
+              borderColor: "#8B6B4A",
+              color: "#2E5430",
+              backgroundColor: "white",
+            }}
           >
             ← Mes anterior
           </button>
-          <span className="px-3 py-2 rounded-md font-semibold" style={{ color: "#2E5430" }}>
+          <span
+            className="px-3 py-2 rounded-md font-semibold"
+            style={{ color: "#2E5430" }}
+          >
             {mesActual.toLocaleString("es-CL", { month: "long", year: "numeric" })}
           </span>
           <button
             onClick={() => cambiarMes(1)}
             className="px-3 py-2 rounded-md border"
-            style={{ borderColor: "#8B6B4A", color: "#2E5430", backgroundColor: "white" }}
+            style={{
+              borderColor: "#8B6B4A",
+              color: "#2E5430",
+              backgroundColor: "white",
+            }}
           >
             Mes siguiente →
           </button>
@@ -819,7 +893,7 @@ export default function GestionHorarios() {
                 let savedSlots = groupedSaved[dayKey] || [];
                 let previewSlots = groupedPreview[dayKey] || [];
                 // ✅ Traer TODAS las excepciones que afecten este día
-                let excepcionesDelDia = (excepciones || []).filter((e) => {
+                let excepcionesDelDia = (excepciones || []).filter((e: any) => {
                   const dia = dayKey;
                   const desde = e.desde ? String(e.desde).split("T")[0] : e.fecha?.split("T")[0];
                   const hasta = e.hasta ? String(e.hasta).split("T")[0] : e.fecha?.split("T")[0];
@@ -830,15 +904,19 @@ export default function GestionHorarios() {
                 // ✅ Si hay filtro por trabajador, mostrar solo las del técnico seleccionado o globales
                 if (filtroTrabajador) {
                   excepcionesDelDia = excepcionesDelDia.filter(
-                    (e) => !e.tecnico_id || Number(e.tecnico_id) === Number(filtroTrabajador)
+                    (e: any) =>
+                      !e.tecnico_id || Number(e.tecnico_id) === Number(filtroTrabajador)
                   );
                 }
 
                 if (filtroTrabajador) {
-                  savedSlots = savedSlots.filter((s) => Number(s.tecnico_id) === Number(filtroTrabajador));
-                  previewSlots = previewSlots.filter((s) => Number(s.tecnico_id) === Number(filtroTrabajador));
+                  savedSlots = savedSlots.filter(
+                    (s) => Number(s.tecnico_id) === Number(filtroTrabajador)
+                  );
+                  previewSlots = previewSlots.filter(
+                    (s) => Number(s.tecnico_id) === Number(filtroTrabajador)
+                  );
                 }
-
 
                 return (
                   <div
@@ -889,70 +967,107 @@ export default function GestionHorarios() {
                     {savedSlots.length > 0 ? (
                       savedSlots.map((s, i) => {
                         const hasCitas = s.citas && s.citas.length > 0;
-                        const isFullyBooked = hasCitas && s.citas!.length >= (s.cupos_totales || 1);
+                        const isFullyBooked =
+                          (s.cupos_ocupados ?? 0) >= (s.cupos_totales ?? 1);
                         return (
                           <div
                             key={`s-${i}`}
-                            className={`text-xs px-2 py-1 rounded mb-1 flex justify-between items-center ${
-                              isFullyBooked ? 'border-2 border-red-300 bg-red-50' : ''
+                            className={`text-xs px-2 py-1 rounded mb-1 flex flex-col gap-1 ${
+                              isFullyBooked ? "border-2 border-red-300 bg-red-50" : ""
                             }`}
                             style={{
                               backgroundColor: isFullyBooked ? "#FEF2F2" : "#F0F8EC",
                               color: "#2E5430",
-                              border: isFullyBooked ? "2px solid #FCA5A5" : "1px solid #E3EAD8",
+                              border: isFullyBooked
+                                ? "2px solid #FCA5A5"
+                                : "1px solid #E3EAD8",
                             }}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="font-medium">
-                                {formatTime(s.hora_inicio)}–{formatTime(s.hora_fin)}
-                              </div>
-                              <div className="text-xs opacity-75">
-                                {s.usuario?.nombre} {s.usuario?.apellido ?? "Trabajador"}{" "}
-                                <span className="opacity-70">
-                                  ({s.usuario?.rol?.codigo ?? ""})
-                                </span>
-                              </div>
-                              {hasCitas && s.citas && (
-                                <div className="text-xs text-red-600 mt-1">
-                                  <div className="font-medium">
-                                    {s.citas!.length}/{s.cupos_totales || 1} cupos ocupados
-                                  </div>
-                                  {s.citas!.slice(0, 2).map((cita: any) => (
-                                    <div key={cita.id} className="truncate">
-                                      • {cita.servicio?.nombre} - {cita.jardin?.nombre}
-                                    </div>
-                                  ))}
-                                  {s.citas!.length > 2 && (
-                                    <div className="text-xs opacity-75">
-                                      +{s.citas!.length - 2} más...
-                                    </div>
-                                  )}
+                            {/* fila principal */}
+                            <div className="flex justify-between items-center">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium">
+                                  {formatTime(s.hora_inicio)}–{formatTime(s.hora_fin)}
                                 </div>
-                              )}
+                                <div className="text-xs opacity-75">
+                                  {s.usuario?.nombre} {s.usuario?.apellido ?? "Trabajador"}{" "}
+                                  <span className="opacity-70">
+                                    ({s.usuario?.rol?.codigo ?? ""})
+                                  </span>
+                                </div>
+
+                                {(s.cupos_ocupados ?? 0) > 0 && (
+                                  <div className="text-xs text-red-600 mt-1">
+                                    <div className="font-medium">
+                                      {s.cupos_ocupados ?? 0}/{s.cupos_totales || 1} cupos ocupados
+                                    </div>
+                                    {(() => {
+                                      const citasDelSlot = s.citas!.filter((c: any) => {
+                                        const citaTime = new Date(c.fecha_hora);
+                                        const inicio = new Date(s.hora_inicio);
+                                        const fin = new Date(s.hora_fin);
+                                        return citaTime >= inicio && citaTime < fin;
+                                      });
+                                      return citasDelSlot.slice(0, 2).map((cita: any) => (
+                                        <div key={cita.id} className="truncate">
+                                          • {cita.servicio?.nombre} - {cita.jardin?.nombre}
+                                        </div>
+                                      ));
+                                    })()}
+                                    {(() => {
+                                      const citasDelSlot = s.citas!.filter((c: any) => {
+                                        const citaTime = new Date(c.fecha_hora);
+                                        const inicio = new Date(s.hora_inicio);
+                                        const fin = new Date(s.hora_fin);
+                                        return citaTime >= inicio && citaTime < fin;
+                                      });
+                                      return citasDelSlot.length > 2 && (
+                                        <div className="text-xs opacity-75">
+                                          +{citasDelSlot.length - 2} más...
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex gap-1 shrink-0 ml-2">
-                              {hasCitas && (
+
+                            {/* botones pequeños debajo del texto (mostrar sólo para slots guardados) */}
+                            <div className="mt-2 flex items-center gap-2">
+                              {(s.cupos_ocupados ?? 0) > 0 && (
                                 <button
-                                  onClick={() => { setModalCitas(s.citas!); setModalSlot(s); setModalOpen(true); }}
-                                  className="text-[10px] px-2 py-0.5 rounded bg-blue-200 hover:bg-blue-300"
+                                  onClick={() => {
+                                    const citasDelSlot = s.citas!.filter((c: any) => {
+                                      const citaTime = new Date(c.fecha_hora);
+                                      const inicio = new Date(s.hora_inicio);
+                                      const fin = new Date(s.hora_fin);
+                                      return citaTime >= inicio && citaTime < fin;
+                                    });
+                                    setModalCitas(citasDelSlot);
+                                    setModalSlot(s);
+                                    setModalOpen(true);
+                                  }}
+                                  className="p-1 rounded bg-[#2F6BFF] hover:bg-[#1B4FFF] text-white transition-colors shadow-sm"
                                   title="Ver detalle"
                                 >
-                                  📋
+                                  <Eye size={14} strokeWidth={2} />
                                 </button>
                               )}
+
                               <button
                                 onClick={() => editarSlot(s)}
-                                className="text-[10px] px-2 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300"
+                                className="p-1 rounded bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
                                 title="Editar horario"
                               >
-                                ✏️
+                                <Pencil size={14} strokeWidth={2} />
                               </button>
+
                               <button
                                 onClick={() => eliminarSlot(s.id!)}
-                                className="text-[10px] px-2 py-0.5 rounded bg-red-200 hover:bg-red-300"
+                                className="p-1 rounded bg-[#8B6B4A] hover:bg-[#6F5237] text-white transition-colors shadow-sm"
                                 title="Eliminar slot"
                               >
-                                🗑️
+                                <Trash2 size={14} strokeWidth={2} />
                               </button>
                             </div>
                           </div>
@@ -978,15 +1093,13 @@ export default function GestionHorarios() {
                             {e.tecnico_id && (
                               <span className="opacity-70">
                                 {" "}
-                                • {e.usuario.rol.codigo.toUpperCase()} 
+                                • {e.usuario?.rol?.codigo?.toUpperCase?.() ?? "TÉCNICO"}
                               </span>
                             )}
                           </div>
                         ))}
                       </div>
                     )}
-
-
                   </div>
                 );
               })}

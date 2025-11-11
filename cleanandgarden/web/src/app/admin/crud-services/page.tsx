@@ -30,9 +30,9 @@ export default function ServicesAdminPage() {
     try {
       setIsLoading(true);
       setError(null);
-      
-      const response = await fetch('http://localhost:3001/admin/servicios');
-      
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/servicios`);
+
       if (!response.ok) {
         // Verificar si la respuesta es HTML (error del servidor)
         const contentType = response.headers.get("content-type");
@@ -86,7 +86,7 @@ export default function ServicesAdminPage() {
     
     if (result.isConfirmed) {
       try {
-        const response = await fetch(`http://localhost:3001/admin/servicios/${id}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/servicios/${id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -151,7 +151,7 @@ export default function ServicesAdminPage() {
     
     if (result.isConfirmed) {
       try {
-        const response = await fetch(`http://localhost:3001/admin/servicios/${id}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/servicios/${id}`, {
           method: 'DELETE',
         });
 

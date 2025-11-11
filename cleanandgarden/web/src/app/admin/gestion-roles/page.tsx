@@ -24,7 +24,7 @@ export default function AdminRolesPage() {
   // ✅ Cargar roles
   const fetchRoles = async () => {
     try {
-      const res = await fetch("http://localhost:3001/admin/roles", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles`, {
         credentials: "include",
       });
       const data = await res.json();
@@ -54,7 +54,7 @@ export default function AdminRolesPage() {
     if (!validarRol()) return;
 
     try {
-      const res = await fetch("http://localhost:3001/admin/roles", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -87,7 +87,7 @@ export default function AdminRolesPage() {
     if (!editRol) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/admin/roles/${editRol.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles/${editRol.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -123,7 +123,7 @@ export default function AdminRolesPage() {
     if (!confirm.isConfirmed) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/admin/roles/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -144,7 +144,7 @@ export default function AdminRolesPage() {
   // ✅ Cambiar disponibilidad (solo para roles válidos)
   const cambiarDisponibilidad = async (id: number, nuevoValor: boolean) => {
     try {
-      const res = await fetch(`http://localhost:3001/admin/roles/${id}/disponibilidad`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/roles/${id}/disponibilidad`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
