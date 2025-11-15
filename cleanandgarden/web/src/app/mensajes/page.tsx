@@ -339,9 +339,9 @@ export default function MensajesPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       {/* Avatar */}
-                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white">
+                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2E5430] text-white uppercase">
                         {conv.otroUsuario
-                          ? `${conv.otroUsuario.nombre[0]}${conv.otroUsuario.apellido[0]}`
+                          ? `${(conv.otroUsuario.nombre?.[0] || '').toUpperCase()}${(conv.otroUsuario.apellido?.[0] || '').toUpperCase()}`
                           : '??'}
                         {/* Indicador de mensajes no leídos */}
                         {mensajesNoLeidos[conv.id] > 0 && (
