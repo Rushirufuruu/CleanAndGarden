@@ -50,3 +50,6 @@ coverage/
 .idea/
 *.swp
 .vercel
+
+# Dev notes (no commitear)
+web/NOTEPAD_disponibilidad.txt

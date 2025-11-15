@@ -346,7 +346,7 @@ export default function RegisterPage() {
             />
             <span>
               Acepto los{" "}
-              <a href="#" className="text-[#2E5430] underline">
+              <a href="/terminos-y-condiciones" className="text-[#2E5430] underline">
                 términos y condiciones
               </a>
             </span>

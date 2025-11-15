@@ -24,6 +24,9 @@ import jwt from "jsonwebtoken";
 import { createServer } from 'http';
 import { ChatWebSocket } from './lib/websocket';
 
+// Importación de librería webpay
+import { WebpayPlus, Options, Environment } from "transbank-sdk";
+
 declare global {
   // eslint-disable-next-line no-var
   var chatWebSocketInstance: import('./lib/websocket').ChatWebSocket | undefined;
@@ -35,7 +38,7 @@ declare global {
 const app = express();
 
 // ==========================================
-// CONFIGURACIÓN CORS (Railway + Vercel + Local)
+// CONFIGURACIÓN CORS (Railway + Vercel + Local + Mobile)
 // ==========================================
 const allowedOrigins = [
   "http://localhost:3000",
@@ -46,6 +49,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Mobile apps (React Native/Expo) often don't send an origin header
       if (!origin) return callback(null, true);
 
       // Permite localhost, Expo y cualquier dominio *.vercel.app
@@ -70,6 +74,20 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
+// ==========================================
+//  WEBPAY - SANDBOX CONFIG (SDK v6.1.0)
+// ==========================================
+
+const webpayTx = new WebpayPlus.Transaction(
+  new Options(
+    process.env.WEBPAY_COMMERCE || "597055555532",
+    process.env.WEBPAY_API_KEY || "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C",
+    Environment.Integration
+  )
+);
+
+
+
 // Middleware que protege rutas privadas (como /profile)
 function authMiddleware(req: Request, res: Response, next: any) {
   const token = req.cookies?.token;
@@ -88,12 +106,19 @@ function authMiddleware(req: Request, res: Response, next: any) {
   }
 }
 
-// Helper para serializar BigInt en JSON (Prisma puede devolver BigInt y JSON.stringify falla)
-// Técnico: JSON.stringify no soporta BigInt; convertimos BigInt -> Number de forma segura.
-// Común: esto evita errores raros cuando mandamos datos muy grandes al front.
+// Helper para serializar BigInt y Decimal en JSON (Prisma puede devolver BigInt y Decimal)
+// Técnico: JSON.stringify no soporta BigInt ni Decimal; convertimos a Number de forma segura.
+// Común: esto evita errores raros cuando mandamos datos numéricos al front.
 function toJSONSafe<T>(data: T): T {
   return JSON.parse(
-    JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))
+    JSON.stringify(data, (_k, v) => {
+      if (typeof v === 'bigint') return Number(v);
+      // Convertir Decimal de Prisma a number
+      if (v && typeof v === 'object' && v.constructor && v.constructor.name === 'Decimal') {
+        return Number(v.toString());
+      }
+      return v;
+    })
   )
 }
 
@@ -1085,6 +1110,141 @@ app.post("/usuario", async (req, res) => {
 });
 
 //-------------------------------------------------------------------------------------
+// Función para enviar correo de confirmación de reserva
+async function enviarCorreoConfirmacionReserva(citaId: bigint) {
+  try {
+    // Obtener datos completos de la cita con todas las relaciones
+    const cita = await prisma.cita.findUnique({
+      where: { id: citaId },
+      include: {
+        servicio: { select: { id: true, nombre: true } },
+        jardin: { select: { id: true, nombre: true } },
+        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true } },
+        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true } },
+      },
+    }) as any;
+
+    if (!cita || !cita.usuario_cita_cliente_idTousuario?.email) {
+      console.error("No se pudo obtener datos de la cita o email del cliente");
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+    });
+
+    // Formatear fecha y hora
+    const fechaHora = new Date(cita.fecha_hora).toLocaleString('es-CL', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fefaf2; padding: 20px;">
+        <div style="background: #2E5430; color: white; padding: 20px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">🌿 Clean & Garden</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">Tu cita ha sido confirmada</p>
+        </div>
+
+        <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <h2 style="color: #2E5430; margin-top: 0;">¡Hola ${cita.usuario_cita_cliente_idTousuario.nombre}!</h2>
+
+          <p style="color: #666; line-height: 1.6;">
+            Tu cita ha sido <strong>reservada exitosamente</strong>. Aquí tienes todos los detalles:
+          </p>
+
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2E5430;">
+            <h3 style="margin-top: 0; color: #2E5430;">📅 Detalles de tu cita</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Servicio:</td>
+                <td style="padding: 8px 0;">${cita.servicio?.nombre || 'Servicio'}</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Fecha y Hora:</td>
+                <td style="padding: 8px 0;">${fechaHora}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Jardín:</td>
+                <td style="padding: 8px 0;">${cita.jardin?.nombre || 'Tu jardín'}</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Técnico:</td>
+                <td style="padding: 8px 0;">${cita.usuario_cita_tecnico_idTousuario ? `${cita.usuario_cita_tecnico_idTousuario.nombre} ${cita.usuario_cita_tecnico_idTousuario.apellido}` : 'Por asignar'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Duración:</td>
+                <td style="padding: 8px 0;">${cita.duracion_minutos} minutos</td>
+              </tr>
+              <tr style="background: #f0f0f0;">
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Precio:</td>
+                <td style="padding: 8px 0; font-weight: bold;">$${cita.precio_aplicado ? Number(cita.precio_aplicado).toLocaleString('es-CL') : 'A convenir'} CLP</td>
+              </tr>
+              ${cita.notas_cliente ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #2E5430;">Notas:</td>
+                <td style="padding: 8px 0;">${cita.notas_cliente}</td>
+              </tr>
+              ` : ''}
+            </table>
+          </div>
+
+          <div style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #4caf50;">
+            <h4 style="margin-top: 0; color: #2e7d32;">✅ Próximos pasos</h4>
+            <ul style="color: #2e7d32; margin: 10px 0; padding-left: 20px;">
+              <li>Recibirás un recordatorio 24 horas antes del servicio</li>
+              <li>El técnico llegará puntualmente a la hora acordada</li>
+              <li>El pago se realiza después de completado el servicio</li>
+              <li>Puedes cancelar o modificar hasta 24 horas antes</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <p style="color: #666; margin-bottom: 20px;">
+              ¿Necesitas modificar tu cita o tienes alguna pregunta?
+            </p>
+            <a href="${process.env.FRONTEND_URL}/agendamientos"
+               style="background: #2E5430; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+              Ver mis citas
+            </a>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+          <div style="text-align: center; color: #999; font-size: 12px;">
+            <p>📧 Contacto: contacto@cleanandgarden.cl</p>
+            <p>📱 WhatsApp: +56 9 1234 5678</p>
+            <p>🏢 Santiago, Chile</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"Clean & Garden" <${process.env.EMAIL_USER}>`,
+      to: cita.usuario_cita_cliente_idTousuario.email,
+      subject: `✅ Tu cita ha sido confirmada - ${fechaHora}`,
+      html,
+    });
+
+    console.log("📧 Correo de confirmación de reserva enviado a:", cita.usuario_cita_cliente_idTousuario.email);
+  } catch (err) {
+    console.error("❌ Error al enviar correo de confirmación de reserva:", err);
+  }
+}
+
+//-------------------------------------------------------------------------------------
 // Confirmar email
 app.get("/confirm-email/:token", async (req, res) => {
   try {
@@ -1492,6 +1652,243 @@ app.get("/profile", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Error en /profile:", err);
     res.status(500).json({ error: "Error al obtener perfil" });
+  }
+});
+
+// Crear dirección para el usuario autenticado
+app.post("/direcciones", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { calle, comuna_id } = req.body;
+
+    if (!calle || !calle.trim()) {
+      return res.status(400).json({ error: 'La calle es obligatoria' });
+    }
+    if (!comuna_id) {
+      return res.status(400).json({ error: 'La comuna es obligatoria' });
+    }
+
+    const direccion = await prisma.direccion.create({
+      data: {
+        calle: calle.trim(),
+        comuna_id: BigInt(comuna_id),
+        usuario_id: BigInt(userData.id)
+      }
+    });
+
+    res.status(201).json({ message: "Dirección creada correctamente", direccion: toJSONSafe(direccion) });
+  } catch (err: any) {
+    console.error("Error al crear dirección:", err);
+    res.status(500).json({ error: "Error interno al crear dirección" });
+  }
+});
+
+// Listar direcciones del usuario autenticado
+app.get("/direcciones", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const direcciones = await prisma.direccion.findMany({
+      where: { usuario_id: BigInt(userData.id) },
+      select: { 
+        id: true, 
+        calle: true,
+        comuna: {
+          select: {
+            nombre: true,
+            region: { select: { nombre: true } }
+          }
+        }
+      },
+      orderBy: { calle: 'asc' }
+    });
+
+    res.json({ direcciones: toJSONSafe(direcciones) });
+  } catch (err) {
+    console.error('Error al obtener direcciones del usuario:', err);
+    res.status(500).json({ error: 'Error al obtener direcciones' });
+  }
+});
+
+// Listar jardines del usuario autenticado
+app.get("/jardines", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const jardines = await prisma.jardin.findMany({
+      where: { cliente_id: BigInt(userData.id) },
+      select: { 
+        id: true, 
+        nombre: true, 
+        area_m2: true,
+        tipo_suelo: true,
+        descripcion: true,
+        direccion_id: true,
+        direccion: {
+          select: {
+            calle: true,
+            comuna: {
+              select: {
+                nombre: true,
+                region: { select: { nombre: true } }
+              }
+            }
+          }
+        },
+        imagen: { select: { url_publica: true } }
+      },
+      orderBy: { nombre: 'asc' }
+    });
+
+    res.json({ jardines: toJSONSafe(jardines) });
+  } catch (err) {
+    console.error('Error al obtener jardines del usuario:', err);
+    res.status(500).json({ error: 'Error al obtener jardines' });
+  }
+});
+
+// Crear jardín para el usuario autenticado (desde UI cliente)
+app.post("/jardines", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id, imagen_url } = req.body;
+
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim()) errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim()) errors.descripcion = "La descripción es obligatoria";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
+
+    if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
+
+    // Crear imagen si se proporciona URL
+    let imagen_principal_id = null;
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          usuario_propietario_id: BigInt(userData.id),
+          tipo: 'jardin',
+          clave_storage: `gardens/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg' // Asumimos JPEG por defecto
+        }
+      });
+      imagen_principal_id = nuevaImagen.id;
+    }
+
+    const dataAny: any = {
+      cliente_id: BigInt(userData.id),
+      nombre: nombre.trim(),
+      area_m2: parseFloat(area_m2),
+      tipo_suelo: tipo_suelo.trim(),
+      descripcion: descripcion.trim(),
+      direccion_id: BigInt(direccion_id),
+      activo: true,
+    };
+    if (imagen_principal_id) dataAny.imagen_principal_id = imagen_principal_id;
+
+    const jardin = await prisma.jardin.create({ data: dataAny });
+
+    res.status(201).json({ message: "Jardín creado correctamente", jardin: toJSONSafe(jardin) });
+  } catch (err: any) {
+    console.error("Error al crear jardín (cliente):", err);
+    res.status(500).json({ error: "Error interno al crear jardín" });
+  }
+});
+
+// Actualizar jardín del usuario autenticado
+app.put("/jardines/:id", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+    const { nombre, area_m2, tipo_suelo, descripcion, direccion_id, imagen_url } = req.body;
+
+    // Verificar que el jardín pertenece al usuario
+    const jardin = await prisma.jardin.findFirst({
+      where: { id: BigInt(id), cliente_id: BigInt(userData.id) }
+    });
+    if (!jardin) {
+      return res.status(404).json({ error: 'Jardín no encontrado' });
+    }
+
+    const errors: Record<string, string> = {};
+    if (!nombre || !nombre.trim()) errors.nombre = "El nombre del jardín es obligatorio";
+    if (!area_m2 || isNaN(parseFloat(area_m2)) || parseFloat(area_m2) <= 0)
+      errors.area_m2 = "El área (m²) debe ser un número mayor a 0";
+    if (!tipo_suelo || !tipo_suelo.trim()) errors.tipo_suelo = "El tipo de suelo es obligatorio";
+    if (!descripcion || !descripcion.trim()) errors.descripcion = "La descripción es obligatoria";
+    if (!direccion_id) errors.direccion_id = "La dirección es obligatoria";
+
+    if (Object.keys(errors).length > 0) return res.status(400).json({ errors });
+
+    // Crear imagen si se proporciona URL nueva
+    let imagen_principal_id = jardin.imagen_principal_id;
+    if (imagen_url) {
+      const nuevaImagen = await prisma.imagen.create({
+        data: {
+          usuario_propietario_id: BigInt(userData.id),
+          tipo: 'jardin',
+          clave_storage: `gardens/${Date.now()}-${nombre.trim().replace(/\s+/g, '-')}`,
+          url_publica: imagen_url,
+          tipo_contenido: 'image/jpeg'
+        }
+      });
+      imagen_principal_id = nuevaImagen.id;
+    }
+
+    const updatedJardin = await prisma.jardin.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre: nombre.trim(),
+        area_m2: parseFloat(area_m2),
+        tipo_suelo: tipo_suelo.trim(),
+        descripcion: descripcion.trim(),
+        direccion_id: BigInt(direccion_id),
+        imagen_principal_id: imagen_principal_id,
+        fecha_actualizacion: new Date()
+      }
+    });
+
+    res.json({ message: "Jardín actualizado correctamente", jardin: toJSONSafe(updatedJardin) });
+  } catch (err: any) {
+    console.error("Error al actualizar jardín:", err);
+    res.status(500).json({ error: "Error interno al actualizar jardín" });
+  }
+});
+
+app.delete("/jardines/:id", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+
+    // Verificar que el jardín pertenece al usuario
+    const jardin = await prisma.jardin.findFirst({
+      where: { id: BigInt(id), cliente_id: BigInt(userData.id) }
+    });
+    if (!jardin) {
+      return res.status(404).json({ error: 'Jardín no encontrado' });
+    }
+
+    // Verificar si el jardín tiene alguna cita (en cualquier estado)
+    const totalCitas = await prisma.cita.count({
+      where: { jardin_id: BigInt(id) }
+    });
+
+    if (totalCitas > 0) {
+      return res.status(400).json({ error: 'No se puede eliminar el jardín porque tiene citas asociadas. Solo se pueden eliminar jardines que nunca hayan sido utilizados en agendamientos.' });
+    }
+
+    // Eliminar el jardín (ya no hay citas que eliminar)
+
+    // Eliminar el jardín
+    await prisma.jardin.delete({
+      where: { id: BigInt(id) }
+    });
+
+    res.json({ message: "Jardín eliminado correctamente" });
+  } catch (err: any) {
+    console.error("Error al eliminar jardín:", err);
+    res.status(500).json({ error: "Error interno al eliminar jardín" });
   }
 });
 
@@ -2645,6 +3042,43 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
       include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
     });
 
+    console.log('ADMIN ENDPOINT - Filtro:', filtro);
+    console.log('ADMIN ENDPOINT - Slots encontrados:', disponibilidad.length);
+    disponibilidad.forEach(slot => {
+      console.log(`ADMIN - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
+    });
+
+    // Para cada slot, obtener las citas asociadas con detalles
+    const disponibilidadConCitas = await Promise.all(
+      disponibilidad.map(async (slot) => {
+        const citaDate = new Date(slot.hora_inicio);
+        const citas = await prisma.cita.findMany({
+          where: {
+            tecnico_id: slot.tecnico_id,
+            fecha_hora: {
+              gte: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate()),
+              lt: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate() + 1),
+            },
+            estado: { in: ['pendiente', 'confirmada', 'realizada'] }
+          },
+          include: {
+            jardin: { select: { id: true, nombre: true } },
+            servicio: { select: { id: true, nombre: true, precio_clp: true } },
+            usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
+          },
+          orderBy: { fecha_creacion: 'asc' }
+        });
+
+        console.log(`ADMIN - Slot ${slot.id} (${slot.fecha} ${slot.hora_inicio}) - Citas encontradas: ${citas.length}`);
+        citas.forEach(c => console.log(`  Cita ${c.id}: ${c.fecha_hora} - ${c.estado}`));
+
+        return {
+          ...slot,
+          citas: citas
+        };
+      })
+    );
+
     // 🔹 Excepciones dentro del mismo rango (globales o del técnico)
     const excepcionFiltro: any = {
       OR: [
@@ -2681,12 +3115,226 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
 
 
     res.json({
-      data: toJSONSafe(disponibilidad),
+      data: toJSONSafe(disponibilidadConCitas),
       excepciones: toJSONSafe(excepciones),
     });
   } catch (err) {
     console.error("❌ Error al listar disponibilidad mensual:", err);
     res.status(500).json({ error: "Error al listar disponibilidad mensual" });
+  }
+});
+
+
+// PUBLIC: listar disponibilidad mensual (solo slots activos) -> usado por frontend para reservar
+app.get("/disponibilidad-mensual", async (req, res) => {
+  try {
+    const { mes, usuarioId, desde, hasta } = req.query;
+    let rangoDesde: string;
+    let rangoHasta: string;
+
+    if (mes) {
+      const [y, m] = String(mes).split("-").map(Number);
+      const firstLocal = new Date(y, m - 1, 1);
+      const lastLocal = new Date(y, m, 0);
+      rangoDesde = toPgDateLocal(firstLocal);
+      rangoHasta = toPgDateLocal(lastLocal);
+    } else if (desde && hasta) {
+      rangoDesde = toPgDateLocal(desde as string);
+      rangoHasta = toPgDateLocal(hasta as string);
+    } else {
+      // Solo mostrar fechas futuras, no los próximos 3 meses
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      rangoDesde = toPgDateLocal(today);
+      // Mostrar los próximos 30 días
+      const futureDate = new Date(today);
+      futureDate.setDate(today.getDate() + 30);
+      rangoHasta = toPgDateLocal(futureDate);
+    }
+
+    const filtro: any = {
+      fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+      activo: true,
+    };
+    if (usuarioId) filtro.tecnico_id = BigInt(String(usuarioId));
+
+    // 🔹 Obtener slots activos
+    const disponibilidad = await prisma.disponibilidad_mensual.findMany({
+      where: filtro,
+      orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true, rol: true } }
+      },
+    });
+
+    console.log('PUBLIC ENDPOINT - Filtro:', filtro);
+    console.log('PUBLIC ENDPOINT - Slots encontrados:', disponibilidad.length);
+    disponibilidad.forEach(slot => {
+      console.log(`PUBLIC - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
+    });
+
+    // 🔹 OPTIMIZACIÓN: Obtener TODAS las citas de una vez en lugar de consultas individuales
+    const citasMap = new Map();
+    if (disponibilidad.length > 0) {
+      const tecnicoIds = [...new Set(disponibilidad.map(slot => slot.tecnico_id))];
+      const fechasSlots = disponibilidad.map(slot => ({
+        tecnico_id: slot.tecnico_id,
+        hora_inicio: slot.hora_inicio,
+        hora_fin: slot.hora_fin
+      }));
+
+      // Una sola consulta para obtener todas las citas relevantes
+      const todasLasCitas = await prisma.cita.findMany({
+        where: {
+          tecnico_id: { in: tecnicoIds },
+          OR: fechasSlots.map(slot => ({
+            tecnico_id: slot.tecnico_id,
+            fecha_hora: {
+              gte: slot.hora_inicio,
+              lt: slot.hora_fin
+            }
+          })),
+          estado: { in: ['pendiente', 'confirmada'] }
+        },
+        include: {
+          jardin: { select: { id: true, nombre: true } },
+          servicio: { select: { id: true, nombre: true, precio_clp: true } },
+          usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
+        },
+        orderBy: { fecha_creacion: 'asc' }
+      });
+
+      // Organizar citas por slot (clave más simple: tecnico_id + fecha_hora)
+      todasLasCitas.forEach(cita => {
+        const key = `${cita.tecnico_id}-${cita.fecha_hora.toISOString()}`;
+        if (!citasMap.has(key)) {
+          citasMap.set(key, []);
+        }
+        citasMap.get(key).push(cita);
+      });
+    }
+
+    // 🔹 OPTIMIZACIÓN: Obtener TODAS las excepciones de una vez
+    const excepcionesMap = new Map();
+    if (disponibilidad.length > 0) {
+      const tecnicoIds = [...new Set(disponibilidad.map(slot => slot.tecnico_id))];
+
+      const todasLasExcepciones = await prisma.disponibilidad_excepcion.findMany({
+        where: {
+          OR: [
+            // Excepciones específicas por fecha y técnico global
+            {
+              fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+              tecnico_id: null
+            },
+            // Excepciones específicas por fecha y técnicos específicos
+            {
+              fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+              tecnico_id: { in: tecnicoIds }
+            },
+            // Excepciones por rango y técnico global
+            {
+              desde: { lte: new Date(rangoHasta) },
+              hasta: { gte: new Date(rangoDesde) },
+              tecnico_id: null
+            },
+            // Excepciones por rango y técnicos específicos
+            {
+              desde: { lte: new Date(rangoHasta) },
+              hasta: { gte: new Date(rangoDesde) },
+              tecnico_id: { in: tecnicoIds }
+            }
+          ]
+        }
+      });
+
+      // Organizar excepciones por slot de manera más simple
+      todasLasExcepciones.forEach((exc: any) => {
+        // Crear clave basada en técnico y fecha/rango
+        let key: string;
+        if (exc.fecha) {
+          key = `${exc.tecnico_id || 'global'}-fecha-${exc.fecha.toISOString().split('T')[0]}`;
+        } else if (exc.desde && exc.hasta) {
+          key = `${exc.tecnico_id || 'global'}-rango-${exc.desde.toISOString().split('T')[0]}-${exc.hasta.toISOString().split('T')[0]}`;
+        } else {
+          return; // Skip excepciones malformadas
+        }
+
+        if (!excepcionesMap.has(key)) {
+          excepcionesMap.set(key, []);
+        }
+        excepcionesMap.get(key).push(exc);
+      });
+    }
+
+    // 🔹 Filtrar slots considerando excepciones (sin consultas adicionales)
+    const slotsFiltrados = disponibilidad.filter(slot => {
+      const fechaSlotStr = slot.fecha.toISOString().split('T')[0];
+      let tieneExcepcionBloqueante = false;
+
+      // Verificar excepciones específicas por fecha
+      const keyFechaGlobal = `null-fecha-${fechaSlotStr}`;
+      const keyFechaTecnico = `${slot.tecnico_id}-fecha-${fechaSlotStr}`;
+
+      if (excepcionesMap.has(keyFechaGlobal)) {
+        const excepciones = excepcionesMap.get(keyFechaGlobal);
+        if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+          tieneExcepcionBloqueante = true;
+        }
+      }
+
+      if (excepcionesMap.has(keyFechaTecnico)) {
+        const excepciones = excepcionesMap.get(keyFechaTecnico);
+        if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+          tieneExcepcionBloqueante = true;
+        }
+      }
+
+      // Verificar excepciones por rango
+      excepcionesMap.forEach((excepciones, key) => {
+        if (key.includes('-rango-')) {
+          const parts = key.split('-rango-');
+          const tecnicoPart = parts[0];
+          const rangoPart = parts[1];
+
+          // Verificar si esta excepción aplica a este técnico
+          const aplicaATecnico = tecnicoPart === 'null' || tecnicoPart === slot.tecnico_id.toString();
+
+          if (aplicaATecnico) {
+            const [desdeStr, hastaStr] = rangoPart.split('-');
+            const desde = new Date(desdeStr);
+            const hasta = new Date(hastaStr);
+
+            // Verificar si la fecha del slot está dentro del rango
+            if (slot.fecha >= desde && slot.fecha <= hasta) {
+              if (excepciones.some((exc: any) => exc.tipo === 'no_disponible' || exc.tipo === 'bloqueo')) {
+                tieneExcepcionBloqueante = true;
+              }
+            }
+          }
+        }
+      });
+
+      return !tieneExcepcionBloqueante;
+    });
+
+    console.log('PUBLIC ENDPOINT - Slots después de filtrar excepciones:', slotsFiltrados.length);
+
+    // 🔹 Asignar citas a cada slot filtrado
+    const disponibilidadConCitas = slotsFiltrados.map(slot => {
+      const key = `${slot.tecnico_id}-${slot.hora_inicio.toISOString()}`;
+      const citas = citasMap.get(key) || [];
+
+      return {
+        ...slot,
+        citas: citas
+      };
+    });
+
+    res.json({ data: toJSONSafe(disponibilidadConCitas) });
+  } catch (err) {
+    console.error("❌ Error al listar disponibilidad pública:", err);
+    res.status(500).json({ error: "Error al listar disponibilidad" });
   }
 });
 
@@ -2711,6 +3359,433 @@ app.delete("/admin/disponibilidad-mensual/eliminar-mes", verifyAdmin, async (req
   } catch (err) {
     console.error("Error al eliminar mes:", err);
     return res.status(500).json({ error: "Error interno al eliminar el mes" });
+  }
+});
+
+
+// ============================================================
+// 🛡️ Reservar una cita: operación atómica que verifica y consume un slot
+// Request body: { disponibilidad_mensual_id, cliente_id, jardin_id, servicio_id, duracion_minutos?, notas_cliente?, precio_aplicado? }
+// Response: 201 + cita creado o 409/400 si no disponible
+app.post("/cita/reservar", async (req, res) => {
+  try {
+    const {
+      disponibilidad_mensual_id,
+      cliente_id,
+      jardin_id,
+      servicio_id,
+      duracion_minutos,
+      notas_cliente,
+      precio_aplicado,
+    } = req.body;
+
+    if (!disponibilidad_mensual_id || !cliente_id || !jardin_id || !servicio_id) {
+      return res.status(400).json({ error: "Faltan parámetros requeridos" });
+    }
+
+    // Ejecutamos la reserva en una transacción para evitar condiciones de carrera
+    const result = await prisma.$transaction(async (tx) => {
+      // Buscar slot y validar
+      const slot = await tx.disponibilidad_mensual.findUnique({ where: { id: BigInt(disponibilidad_mensual_id) } });
+      if (!slot || !slot.activo) {
+        throw { status: 400, message: "Slot no existe o no está activo" };
+      }
+      if ((slot.cupos_ocupados ?? 0) >= (slot.cupos_totales ?? 1)) {
+        throw { status: 409, message: "Slot ya está lleno" };
+      }
+
+      // Incrementar cupos_ocupados
+      await tx.disponibilidad_mensual.update({ where: { id: slot.id }, data: { cupos_ocupados: { increment: 1 } } });
+
+      // Crear la cita usando la hora del slot (hora_inicio)
+      const cita = await tx.cita.create({
+        data: {
+          cliente_id: BigInt(cliente_id),
+          jardin_id: BigInt(jardin_id),
+          servicio_id: BigInt(servicio_id),
+          tecnico_id: BigInt(slot.tecnico_id),
+          fecha_hora: slot.hora_inicio,
+          duracion_minutos: duracion_minutos ? Number(duracion_minutos) : 60,
+          estado: "confirmada",
+          notas_cliente: notas_cliente ?? null,
+          precio_aplicado: precio_aplicado !== undefined && precio_aplicado !== null ? Number(precio_aplicado) : undefined,
+          nombre_servicio_snapshot: undefined,
+        },
+      });
+
+      return cita;
+    });
+
+    // Enviar correo de confirmación de reserva de forma asíncrona
+    setImmediate(() => {
+      enviarCorreoConfirmacionReserva(result.id);
+    });
+
+    return res.status(201).json({ ok: true, cita: toJSONSafe(result) });
+  } catch (err: any) {
+    console.error("❌ Error al reservar cita:", err);
+    if (err && err.status) return res.status(err.status).json({ error: err.message });
+    return res.status(500).json({ error: "Error interno al reservar cita" });
+  }
+});
+
+// Obtener citas del cliente autenticado
+app.get('/citas/mis', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const clienteId = Number(user?.id);
+    if (!clienteId) return res.status(400).json({ error: 'Cliente no identificado' });
+
+    const citas = await prisma.cita.findMany({
+      where: {
+        cliente_id: BigInt(clienteId),
+        // incluir todas las citas del historial (quitar filtro de fecha futura)
+      },
+      include: {
+        servicio: { select: { id: true, nombre: true, duracion_minutos: true } },
+        jardin: { 
+          include: { 
+            direccion: { 
+              include: { 
+                comuna: { 
+                  include: { 
+                    region: true
+                  }
+                } 
+              } 
+            } 
+          }
+        },
+        usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
+        usuario_cita_tecnico_idTousuario: { select: { id: true, nombre: true, apellido: true, email: true, telefono: true } },
+        pago: { select: { id: true, metodo: true, estado: true, monto_clp: true, creado_en: true, flow_order_id: true, flow_status: true } },
+        // incluir visita y productos para citas completadas
+        visita: {
+          include: {
+            visita_producto: {
+              include: {
+                producto: { select: { id: true, nombre: true, descripcion: true } }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { fecha_hora: 'desc' } // ordenar por fecha descendente para mostrar más recientes primero
+    });
+
+    res.json(toJSONSafe(citas));
+  } catch (err) {
+    console.error('Error al obtener citas del cliente:', err);
+    res.status(500).json({ error: 'Error interno al obtener citas' });
+  }
+});
+
+
+// Obtener citas asignadas al jardinero/técnico autenticado
+app.get('/citas/jardinero', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const tecnicoId = Number(user?.id);
+    const userRole = user?.rol?.codigo || user?.rol;
+
+    // Verificar que sea jardinero o técnico
+    if (userRole !== 'jardinero' && userRole !== 'tecnico') {
+      return res.status(403).json({ error: 'Acceso denegado. Solo para jardineros/técnicos.' });
+    }
+
+    if (!tecnicoId) {
+      return res.status(400).json({ error: 'Técnico no identificado' });
+    }
+
+    // Obtener todas las citas asignadas al técnico (pasadas y futuras)
+    const citas = await prisma.cita.findMany({
+      where: {
+        tecnico_id: BigInt(tecnicoId)
+      },
+      select: {
+        id: true,
+        fecha_hora: true,
+        duracion_minutos: true,
+        estado: true,
+        precio_aplicado: true,
+        notas_cliente: true,
+        motivo_cancelacion: true,
+        notas_cancelacion: true,
+        cancelada_por_usuario_id: true,
+        cancelada_por_rol: true,
+        usuario_cita_cancelada_por_usuario_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true
+          }
+        },
+        servicio: {
+          select: {
+            id: true,
+            nombre: true,
+            duracion_minutos: true
+          }
+        },
+        jardin: {
+          select: {
+            id: true,
+            nombre: true,
+            direccion: {
+              select: {
+                comuna: {
+                  select: {
+                    region: {
+                      select: {
+                        nombre: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        usuario_cita_cliente_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            email: true,
+            telefono: true
+          }
+        },
+        pago: {
+          select: {
+            id: true,
+            metodo: true,
+            estado: true,
+            monto_clp: true,
+            creado_en: true
+          },
+          where: {
+            estado: 'aprobado'
+          }
+        },
+        visita: {
+          select: {
+            id: true,
+            insumos: true,
+            estado: true,
+            resumen: true,
+            inicio: true,
+            fin: true,
+            visita_producto: {
+              select: {
+                cantidad: true,
+                producto: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                    precio_unitario: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: [
+        { fecha_hora: 'desc' } // Más recientes primero
+      ]
+    });
+
+    res.json(toJSONSafe(citas));
+  } catch (err) {
+    console.error('Error al obtener citas del jardinero:', err);
+    res.status(500).json({ error: 'Error interno al obtener citas' });
+  }
+});
+
+// Cancelar una cita por parte del cliente (o admin). Regla: solo se puede cancelar hasta las 12:00 del día anterior.
+app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const userId = Number(user?.id);
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Falta id de cita' });
+
+    const citaId = BigInt(id);
+
+    // Buscar cita
+    const cita = await prisma.cita.findUnique({ where: { id: citaId } });
+    if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+
+    // Solo el cliente que reservó, el jardinero asignado o admin puede cancelar
+    const isOwner = Number(cita.cliente_id) === userId;
+    const isAssignedTecnico = Number(cita.tecnico_id) === userId;
+    const isAdmin = (user?.rol?.codigo === 'admin') || (user?.rol === 'admin');
+    if (!isOwner && !isAssignedTecnico && !isAdmin) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
+
+    // Verificar estado actual
+    if (!['pendiente', 'confirmada'].includes(cita.estado)) {
+      return res.status(400).json({ error: 'La cita no está en un estado que permita cancelación' });
+    }
+
+    // Regla de tiempo: hasta las 12:00 del día anterior (hora local del servidor)
+    const fecha = new Date(cita.fecha_hora);
+    const deadline = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() - 1, 12, 0, 0, 0);
+    const ahora = new Date();
+    if (ahora > deadline && !isAdmin) {
+      return res.status(400).json({ error: 'Plazo de cancelación expirado (hasta las 12:00 del día anterior)' });
+    }
+
+    // Leer motivo/notas opcionales del body
+    const { motivo_cancelacion, notas_cancelacion } = req.body ?? {};
+
+    // Ejecutar en transacción: actualizar estado de la cita, registrar metadatos de cancelación y liberar cupo si existe el slot
+    const result = await prisma.$transaction(async (tx) => {
+      // Actualizar estado de la cita y metadata
+      const updated = await tx.cita.update({
+        where: { id: citaId },
+        data: {
+          estado: 'cancelada',
+          cancelada_en: new Date(),
+          cancelada_por_usuario_id: userId ? BigInt(userId) : undefined,
+          cancelada_por_rol: (user?.rol?.codigo ?? user?.rol) || undefined,
+          motivo_cancelacion: motivo_cancelacion ?? undefined,
+          notas_cancelacion: notas_cancelacion ?? undefined,
+        },
+      });
+
+      // Intentar encontrar el slot correspondiente para decrementar cupos_ocupados
+      // Construir cláusula where de forma segura (tecnico_id puede ser null)
+      const whereClause: any = { hora_inicio: cita.fecha_hora };
+      if (cita.tecnico_id !== null && cita.tecnico_id !== undefined) {
+
+    // Iniciar pago con Webpay (Webpay Plus) usando transbank-sdk
+    app.post('/pago/init', authMiddleware, async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        const userId = Number(user?.id);
+        const { cita_id } = req.body ?? {};
+        if (!cita_id) return res.status(400).json({ error: 'Falta cita_id' });
+
+        const citaId = BigInt(cita_id);
+        const cita = await prisma.cita.findUnique({ where: { id: citaId }, include: { servicio: true } });
+        if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+
+        // determinar monto
+        const monto = Number(cita.precio_aplicado ?? cita.servicio?.precio_clp ?? 0);
+
+        // crear registro de pago pendiente
+        const pago = await prisma.pago.create({
+          data: {
+            cita_id: cita.id,
+            usuario_id: BigInt(userId),
+            metodo: 'flow',
+            estado: 'pendiente',
+            monto_clp: monto,
+            moneda: 'CLP'
+          }
+        });
+
+        // Usar transbank-sdk para iniciar la transacción
+        let tbk: any;
+        try {
+          tbk = require('transbank-sdk');
+        } catch (e) {
+          console.error('Transbank SDK require error', e);
+          return res.status(500).json({ error: 'SDK Transbank no disponible en el servidor' });
+        }
+
+        const WebpayPlus = tbk.WebpayPlus;
+        const commerceCode = process.env.TBK_COMMERCE_CODE ?? '';
+        const apiKey = process.env.TBK_API_KEY ?? '';
+        const returnUrl = process.env.TBK_RETURN_URL ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/pago/return`;
+
+        const transaction = WebpayPlus.Transaction.buildForIntegration(commerceCode, apiKey);
+        const buyOrder = `order_${pago.id}_${Date.now()}`;
+        const sessionId = `sess_${userId}_${Date.now()}`;
+
+        const createRes = await transaction.create(buyOrder, sessionId, monto, returnUrl);
+
+        // actualizar pago con metadatos de flujo
+        await prisma.pago.update({ where: { id: pago.id }, data: { flow_order_id: buyOrder, flow_token: createRes?.token ?? createRes?.token_ws ?? null, flow_payload: createRes } });
+
+        // Responder con la URL/token para redirigir al cliente a Webpay
+        return res.json({ ok: true, pago_id: pago.id, buyOrder, token: createRes?.token ?? createRes?.token_ws ?? null, url: createRes?.url ?? createRes?.url_redirection ?? createRes?.url_ws ?? null, raw: createRes });
+      } catch (err: any) {
+        console.error('pago init error', err);
+        res.status(500).json({ error: err?.message ?? 'Error iniciando pago' });
+      }
+    });
+
+    // Endpoint para recibir el retorno de Webpay (commit) y actualizar el pago y la cita
+    app.post('/pago/return', async (req: Request, res: Response) => {
+      try {
+        // Webpay suele enviar token_ws en body/query. Aceptamos ambos.
+        const token = req.body?.token_ws ?? req.body?.token ?? req.query?.token_ws ?? req.query?.token;
+        if (!token) return res.status(400).send('token faltante');
+
+        // inicializar SDK
+        let tbk: any;
+        try {
+          tbk = require('transbank-sdk');
+        } catch (e) {
+          console.error('Transbank SDK require error', e);
+          return res.status(500).send('SDK Transbank no disponible');
+        }
+
+        const WebpayPlus = tbk.WebpayPlus;
+        const commerceCode = process.env.TBK_COMMERCE_CODE ?? '';
+        const apiKey = process.env.TBK_API_KEY ?? '';
+        const transaction = WebpayPlus.Transaction.buildForIntegration(commerceCode, apiKey);
+
+        // Commit/obtener resultado
+        const commitRes = await transaction.commit(token);
+
+        // Buscar pago por token si existe
+        const pago = await prisma.pago.findFirst({ where: { flow_token: token } });
+
+        // Mapear estado
+        const aprobado = commitRes && (commitRes?.status === 'AUTHORIZED' || commitRes?.response_code === 0 || commitRes?.type === 'venta');
+        const nuevoEstado = aprobado ? 'aprobado' : 'rechazado';
+
+        // Actualizar pago y registrar evento
+        if (pago) {
+          await prisma.$transaction(async (tx) => {
+            await tx.pago.update({ where: { id: pago.id }, data: { estado: nuevoEstado, flow_payload: commitRes } });
+            await tx.pago_evento.create({ data: { pago_id: pago.id, tipo_evento: 'return', estado_anterior: pago.estado as any, estado_nuevo: nuevoEstado as any, detalle: commitRes } });
+
+            if (aprobado) {
+              // marcar cita como confirmada
+              await tx.cita.update({ where: { id: pago.cita_id }, data: { estado: 'confirmada' } });
+            }
+          });
+        }
+
+        // Responder con la info de la transacción (Webpay normalmente espera una redirección a la app)
+        // Para simplicidad devolvemos JSON con resultado.
+        return res.json({ ok: true, aprobado: aprobado, commit: commitRes });
+      } catch (err: any) {
+        console.error('pago return error', err);
+        return res.status(500).json({ error: err?.message ?? 'Error procesando retorno de pago' });
+      }
+    });
+        whereClause.tecnico_id = cita.tecnico_id;
+      }
+
+      const slot = await tx.disponibilidad_mensual.findFirst({ where: whereClause });
+
+      if (slot) {
+        // Decrementar sin bajar de cero
+        const nuevos = Math.max((slot.cupos_ocupados ?? 0) - 1, 0);
+        await tx.disponibilidad_mensual.update({ where: { id: slot.id }, data: { cupos_ocupados: nuevos } });
+      }
+
+      return updated;
+    });
+
+    res.json({ ok: true, cita: toJSONSafe(result) });
+  } catch (err) {
+    console.error('Error al cancelar cita:', err);
+    res.status(500).json({ error: 'Error interno al cancelar cita' });
   }
 });
 
@@ -3662,11 +4737,17 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
 
     // Si se especifica un rol, filtrar por él (pero respetando permisos)
     if (rol) {
-      if (userRol === 'cliente' && !['admin', 'jardinero'].includes(rol as string)) {
+      const rolStr = String(rol).toLowerCase();
+      // permiso: clientes sólo pueden buscar admins y jardineros (aceptamos código o nombre)
+      if (userRol === 'cliente' && !['admin', 'jardinero'].includes(rolStr)) {
         return res.status(403).json({ error: 'No tienes permiso para buscar este tipo de usuarios' });
       }
+      // Filtrar por código o por nombre del rol (insensible a mayúsculas)
       whereClause.rol = {
-        codigo: rol as string
+        OR: [
+          { codigo: { equals: rolStr, mode: 'insensitive' } },
+          { nombre: { contains: rolStr, mode: 'insensitive' } }
+        ]
       };
     }
 
@@ -3711,6 +4792,524 @@ app.get('/usuarios/buscar', authMiddleware, async (req: Request, res: Response) 
   }
 });
 
+// PUBLIC: listar jardineros activos (sin autenticación)
+app.get('/public/jardineros', async (_req: Request, res: Response) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        activo: true,
+        OR: [
+          { rol: { codigo: { equals: 'jardinero', mode: 'insensitive' } } },
+          { rol: { nombre: { contains: 'jardinero', mode: 'insensitive' } } }
+        ]
+      },
+      select: { id: true, nombre: true, apellido: true, email: true, rol: { select: { codigo: true, nombre: true } } }
+    })
+
+    const usuariosFormatted = usuarios.map(u => ({
+      id: Number(u.id),
+      nombre: u.nombre,
+      apellido: u.apellido,
+      email: u.email,
+      rol: u.rol ? (u.rol.nombre ?? u.rol.codigo) : null
+    }))
+
+    res.json(toJSONSafe(usuariosFormatted))
+  } catch (err) {
+    console.error('❌ Error al listar jardineros públicos:', err)
+    res.status(500).json({ error: 'Error al listar jardineros' })
+  }
+})
+
+
+app.post("/payments/webpay/create", async (req, res) => {
+  try {
+    const { buyOrder, sessionId, amount, returnUrl } = req.body;
+
+    const response = await webpayTx.create(
+      buyOrder || `order-${Date.now()}`,
+      sessionId || `session-${Date.now()}`,
+      amount || 1000,
+      returnUrl || "http://localhost:3000/webpay/return"
+    );
+
+    res.json({
+      url: response.url,
+      token: response.token,
+    });
+  } catch (err: any) {
+    console.error("[Webpay create]", err);
+    res.status(500).json({ error: "Error creando transacción", detail: err.message });
+  }
+});
+
+app.post("/payments/webpay/commit", async (req, res) => {
+  try {
+    const { token_ws } = req.body;
+    if (!token_ws) return res.status(400).json({ error: "Falta token_ws" });
+
+    const result = await webpayTx.commit(token_ws);
+
+    // Si la transacción fue autorizada, insertar pago en BD y actualizar cita
+    if (result.status === 'AUTHORIZED') {
+      try {
+        // Extraer cita_id del buy_order (formato: cita-{id})
+        const buyOrderParts = result.buy_order?.split('-');
+        if (buyOrderParts && buyOrderParts[0] === 'cita' && buyOrderParts[1]) {
+          const citaId = BigInt(buyOrderParts[1]);
+
+          // Buscar la cita
+          const cita = await prisma.cita.findUnique({
+            where: { id: citaId },
+            select: { id: true, cliente_id: true, estado: true, precio_aplicado: true }
+          });
+
+          if (cita) {
+            // Insertar el pago
+            const pago = await prisma.pago.create({
+              data: {
+                cita_id: citaId,
+                usuario_id: cita.cliente_id,
+                metodo: 'webpay', // Método de pago Webpay
+                estado: 'aprobado',
+                monto_clp: result.amount,
+                flow_order_id: result.buy_order,
+                flow_token: token_ws,
+                flow_status: result.status,
+                flow_payload: result
+              }
+            });
+
+            // Actualizar estado de la cita si estaba pendiente
+            if (cita.estado === 'pendiente') {
+              await prisma.cita.update({
+                where: { id: citaId },
+                data: { estado: 'confirmada' }
+              });
+            }
+
+            console.log(`[Webpay commit] Pago insertado: ${pago.id}, Cita actualizada: ${citaId}`);
+          } else {
+            console.error(`[Webpay commit] Cita no encontrada: ${citaId}`);
+          }
+        } else {
+          console.error(`[Webpay commit] Formato buy_order inválido: ${result.buy_order}`);
+        }
+      } catch (dbErr: any) {
+        console.error("[Webpay commit] Error en BD:", dbErr);
+        // No fallar la respuesta, solo loggear
+      }
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("[Webpay commit]", err);
+    res.status(500).json({ error: "Error confirmando transacción", detail: err.message });
+  }
+});
+
+// Obtener lista de productos/insumos disponibles
+app.get("/productos", authMiddleware, async (req, res) => {
+  try {
+    const productos = await prisma.producto.findMany({
+      where: { activo: true },
+      select: {
+        id: true,
+        nombre: true,
+        descripcion: true,
+        precio_unitario: true,
+        stock_actual: true
+      },
+      orderBy: { nombre: 'asc' }
+    });
+
+    res.json({ productos: toJSONSafe(productos) });
+  } catch (err: any) {
+    console.error("Error obteniendo productos:", err);
+    res.status(500).json({ error: "Error interno al obtener productos" });
+  }
+});
+
+// Completar cita con productos
+app.post("/cita/:id/completar", authMiddleware, async (req, res) => {
+  try {
+    const userData = (req as any).user;
+    const { id } = req.params;
+    const { productos } = req.body; // Array de { producto_id, cantidad }
+
+    // Verificar que la cita existe y pertenece al técnico
+    const cita = await prisma.cita.findFirst({
+      where: { 
+        id: BigInt(id), 
+        tecnico_id: BigInt(userData.id),
+        estado: 'confirmada'
+      }
+    });
+
+    if (!cita) {
+      return res.status(404).json({ error: 'Cita no encontrada o no puedes completarla' });
+    }
+
+    // Calcular el total de productos y validar stock
+    let totalProductos = 0;
+    const productosDetalle = [];
+    const visitaProductosData = []; // Array para almacenar los datos de visita_producto
+
+    if (productos && Array.isArray(productos)) {
+      for (const item of productos) {
+        const producto = await prisma.producto.findUnique({
+          where: { id: BigInt(item.producto_id) }
+        });
+
+        if (!producto || !producto.activo) {
+          return res.status(400).json({ error: `Producto ${item.producto_id} no encontrado o inactivo` });
+        }
+
+        if (producto.stock_actual !== null && producto.stock_actual < item.cantidad) {
+          return res.status(400).json({ error: `Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock_actual}` });
+        }
+
+        const precioUnitario = producto.precio_unitario ? Number(producto.precio_unitario) : 0;
+        const subtotal = precioUnitario * item.cantidad;
+        totalProductos += subtotal;
+
+        productosDetalle.push({
+          producto_id: item.producto_id,
+          nombre: producto.nombre,
+          precio_unitario: precioUnitario,
+          cantidad: item.cantidad,
+          subtotal: subtotal
+        });
+
+        // Preparar datos para visita_producto con costo_unitario
+        visitaProductosData.push({
+          visita_id: 0, // Se actualizará después de crear la visita
+          producto_id: BigInt(item.producto_id),
+          cantidad: item.cantidad,
+          costo_unitario: precioUnitario // Guardar el precio unitario en ese momento
+        });
+      }
+    }
+
+    // Actualizar el precio aplicado de la cita sumando los productos
+    const precioBase = cita.precio_aplicado ? parseFloat(cita.precio_aplicado.toString()) : 0;
+    const nuevoPrecioTotal = precioBase + totalProductos;
+
+    // Crear o actualizar la visita
+    const visitaExistente = await prisma.visita.findFirst({
+      where: { cita_id: BigInt(id) }
+    });
+
+    let visita;
+    if (visitaExistente) {
+      // Actualizar visita existente
+      visita = await prisma.visita.update({
+        where: { id: visitaExistente.id },
+        data: {
+          estado: 'completada',
+          fin: new Date(),
+          fecha_actualizacion: new Date()
+        }
+      });
+    } else {
+      // Crear nueva visita
+      visita = await prisma.visita.create({
+        data: {
+          cita_id: BigInt(id),
+          tecnico_id: BigInt(userData.id),
+          estado: 'completada',
+          inicio: new Date(cita.fecha_hora),
+          fin: new Date(),
+          resumen: `Servicio completado con ${productos?.length || 0} productos utilizados`
+        }
+      });
+    }
+
+    // Crear registros en visita_producto
+    if (productos && productos.length > 0) {
+      // Actualizar el visita_id en todos los registros
+      visitaProductosData.forEach(item => {
+        item.visita_id = Number(visita.id);
+      });
+
+      await prisma.visita_producto.createMany({
+        data: visitaProductosData
+      });
+
+      // Actualizar stock de productos
+      for (const item of productos) {
+        await prisma.producto.update({
+          where: { id: BigInt(item.producto_id) },
+          data: {
+            stock_actual: {
+              decrement: item.cantidad
+            }
+          }
+        });
+      }
+    }
+
+    // Actualizar el estado de la cita a 'realizada' y el precio total
+    await prisma.cita.update({
+      where: { id: BigInt(id) },
+      data: {
+        estado: 'realizada',
+        precio_aplicado: nuevoPrecioTotal,
+        fecha_actualizacion: new Date()
+      }
+    });
+
+    res.json({ 
+      message: "Cita completada exitosamente",
+      precio_total: nuevoPrecioTotal,
+      productos_utilizados: productosDetalle
+    });
+
+  } catch (err: any) {
+    console.error("Error completando cita:", err);
+    res.status(500).json({ error: "Error interno al completar la cita" });
+  }
+});
+// ==========================================
+// ==========================================
+// OBTENER TODAS LAS CITAS (PARA ADMIN)
+// ==========================================
+app.get("/citas/all", async (req, res) => {
+  try {
+    const citas = await prisma.cita.findMany({
+      include: {
+        servicio: { select: { nombre: true, precio_clp: true } },
+        usuario_cita_cliente_idTousuario: {
+          select: { id: true, nombre: true, apellido: true, email: true },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    const formatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+      cliente: cita.usuario_cita_cliente_idTousuario
+        ? {
+            id: Number(cita.usuario_cita_cliente_idTousuario.id),
+            nombre: cita.usuario_cita_cliente_idTousuario.nombre,
+            apellido: cita.usuario_cita_cliente_idTousuario.apellido,
+            email: cita.usuario_cita_cliente_idTousuario.email,
+          }
+        : null,
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    console.error("❌ Error al obtener todas las citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// OBTENER CITAS POR EMAIL DEL CLIENTE
+// ==========================================
+app.get("/citas/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un correo electrónico" });
+    }
+
+    // Buscar usuario por correo
+    const usuario = await prisma.usuario.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(usuario.id) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /citas/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR SUPABASE AUTH_ID
+// ==========================================
+app.get("/usuario/:userId/info", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: "Debe proporcionar un ID de usuario" });
+    }
+
+    console.log(`👤 Buscando info para usuario ID (Supabase): ${userId}`);
+
+    // Como no existe auth_id, buscar por email que viene en el parámetro
+    // O mejor aún, usar el endpoint con email directamente
+    return res.status(400).json({ 
+      error: "Use el endpoint /usuario/info/email/:email en su lugar" 
+    });
+  } catch (error) {
+    console.error("❌ Error en /usuario/:userId/info:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER INFORMACIÓN DEL USUARIO POR EMAIL
+// ==========================================
+app.get("/usuario/info/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ error: "Debe proporcionar un email" });
+    }
+
+    console.log(`👤 Buscando info para usuario email: ${email}`);
+
+    // Buscar usuario por email
+    const usuario = await prisma.usuario.findUnique({
+      where: { email: decodeURIComponent(email) },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        telefono: true,
+        rol: {
+          select: {
+            nombre: true,
+            codigo: true,
+          },
+        },
+      },
+    });
+
+    if (!usuario) {
+      console.log(`❌ Usuario no encontrado con email: ${email}`);
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    console.log(`✅ Usuario encontrado: ${usuario.nombre} ${usuario.apellido}`);
+
+    // Formatear respuesta
+    const userInfo = {
+      id: Number(usuario.id),
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email,
+      telefono: usuario.telefono,
+      rol: usuario.rol ? usuario.rol.nombre : null,
+      rolCodigo: usuario.rol ? usuario.rol.codigo : null,
+    };
+
+    res.json(userInfo);
+  } catch (error) {
+    console.error("❌ Error en /usuario/info/email/:email:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
+// OBTENER CITAS DEL USUARIO AUTENTICADO (ALTERNATIVO)
+// ==========================================
+app.get("/api/mis-citas", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+
+    console.log("📋 Buscando citas para usuario ID:", userId);
+
+    // Buscar citas asociadas al cliente
+    const citas = await prisma.cita.findMany({
+      where: { cliente_id: BigInt(userId) },
+      include: {
+        servicio: {
+          select: {
+            nombre: true,
+            precio_clp: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    console.log(`✅ Encontradas ${citas.length} citas`);
+
+    // Si no hay citas
+    if (!citas || citas.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Formatear resultado para el frontend
+    const citasFormatted = citas.map((cita) => ({
+      id: Number(cita.id),
+      fecha_hora: cita.fecha_hora,
+      estado: cita.estado,
+      precio_aplicado: cita.precio_aplicado ? Number(cita.precio_aplicado) : null,
+      notas_cliente: cita.notas_cliente || null,
+      nombre_servicio_snapshot: cita.nombre_servicio_snapshot || null,
+      servicio: cita.servicio
+        ? {
+            nombre: cita.servicio.nombre,
+            precio_clp: Number(cita.servicio.precio_clp),
+          }
+        : null,
+    }));
+
+    res.json(citasFormatted);
+  } catch (error) {
+    console.error("❌ Error en /api/mis-citas:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
 
 //========================================================================
 //COMENTARIOS CLIENTE

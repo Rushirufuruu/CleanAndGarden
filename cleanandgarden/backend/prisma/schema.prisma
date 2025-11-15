@@ -532,4 +532,5 @@ enum estado_pago {
 enum metodo_pago {
   flow
   transferencia
+  webpay
 }
