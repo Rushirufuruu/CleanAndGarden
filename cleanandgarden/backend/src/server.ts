@@ -1499,183 +1499,91 @@ app.get("/profile", authMiddleware, async (req, res) => {
 // =======================================
 // ACTUALIZAR PERFIL (valida teléfono si jardinero)
 // =======================================
-app.put("/profile", authMiddleware, async (req, res) => {
+app.put("/profile", authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userData = (req as any).user;
+    const userId = BigInt((req as any).user.id);
     const { nombre, apellido, telefono, direcciones } = req.body;
 
-    // ===============================
-    // Buscar usuario
-    // ===============================
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: BigInt(userData.id) },
-      include: { rol: true },
-    });
-
-    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
-
-    // ===============================
-    // Validaciones básicas
-    // ===============================
-    if (!nombre?.trim())
-      return res.status(400).json({ error: "El nombre es obligatorio." });
-    if (!apellido?.trim())
-      return res.status(400).json({ error: "El apellido es obligatorio." });
-    if (!telefono?.trim())
-      return res.status(400).json({ error: "El teléfono es obligatorio." });
-
-    if (!/^\+569\d{8}$/.test(telefono)) {
-      return res
-        .status(400)
-        .json({ error: "El número de teléfono debe tener formato válido (+569XXXXXXXX)." });
+    // Validar datos mínimos
+    if (!nombre || !apellido || !telefono) {
+      return res.status(400).json({ error: "Faltan datos obligatorios." });
     }
 
-    if (!Array.isArray(direcciones) || direcciones.length === 0) {
-      return res.status(400).json({
-        error: "Debes ingresar al menos una dirección con calle, región y comuna.",
-      });
-    }
-
-    // ===============================
-    // Validar direcciones
-    // ===============================
-    const combinaciones = new Set<string>();
-
-    for (const [i, dir] of direcciones.entries()) {
-      if (dir._delete) continue; // omitimos las eliminadas
-
-      const calle = dir.calle?.trim();
-      const region = dir.region?.trim();
-      const comunaNombre = dir.comuna?.trim();
-
-      if (!calle || !region || !comunaNombre) {
-        return res.status(400).json({
-          error: `La dirección #${i + 1} está incompleta. Debe incluir calle, región y comuna.`,
-        });
-      }
-
-      // --- Validar que la comuna exista ---
-      const comuna = await prisma.comuna.findFirst({
-        where: {
-          nombre: { equals: comunaNombre, mode: "insensitive" },
-          region: { nombre: { equals: region, mode: "insensitive" } },
-        },
-        include: { region: true },
-      });
-
-      if (!comuna) {
-        return res.status(400).json({
-          error: `La comuna '${comunaNombre}' no existe o no pertenece a la región '${region}'.`,
-        });
-      }
-
-      // --- Validar duplicidad dentro del mismo formulario ---
-      const clave = `${calle.toLowerCase()}-${comunaNombre.toLowerCase()}`;
-      if (combinaciones.has(clave)) {
-        return res.status(400).json({
-          error: `La dirección "${calle}, ${comunaNombre}" está duplicada en el formulario.`,
-        });
-      }
-      combinaciones.add(clave);
-
-      // --- Validar duplicidad con direcciones existentes en BD ---
-      const existente = await prisma.direccion.findFirst({
-        where: {
-          usuario_id: BigInt(userData.id),
-          calle: { equals: calle, mode: "insensitive" },
-          comuna: { nombre: { equals: comunaNombre, mode: "insensitive" } },
-        },
-        include: { comuna: true },
-      });
-
-      if (existente && (!dir.id || existente.id !== BigInt(dir.id))) {
-        return res.status(400).json({
-          error: `Ya tienes registrada una dirección igual: "${calle}, ${comunaNombre}".`,
-        });
-      }
-    }
-
-    // ===============================
-    // Actualizar datos personales
-    // ===============================
+    // Actualizar datos básicos
     await prisma.usuario.update({
-      where: { id: BigInt(userData.id) },
+      where: { id: userId },
       data: { nombre, apellido, telefono },
     });
 
-    // ===============================
-    // Eliminar / Crear / Actualizar direcciones
-    // ===============================
+    // Si hay direcciones en el body
+    if (Array.isArray(direcciones)) {
+      for (const dir of direcciones) {
+        if (dir._delete && dir.id) {
+          // 🗑️ Eliminar
+          await prisma.direccion.delete({
+            where: { id: BigInt(dir.id) },
+          });
+        } else if (dir._new) {
+          // ➕ Crear
+          const comuna = await prisma.comuna.findFirst({
+            where: { nombre: dir.comuna },
+            select: { id: true },
+          });
 
-    // Eliminar primero las direcciones marcadas con _delete
-    for (const dir of direcciones) {
-      if (dir._delete && dir.id) {
-        await prisma.direccion.delete({
-          where: { id: BigInt(dir.id) },
-        });
+          if (comuna) {
+            await prisma.direccion.create({
+              data: {
+                calle: dir.calle,
+                usuario_id: userId,
+                comuna_id: comuna.id,
+              },
+            });
+          }
+        } else if (dir.id) {
+          // ✏️ Actualizar dirección existente
+          const comuna = await prisma.comuna.findFirst({
+            where: { nombre: dir.comuna },
+            select: { id: true },
+          });
+
+          if (comuna) {
+            await prisma.direccion.update({
+              where: { id: BigInt(dir.id) },
+              data: {
+                calle: dir.calle,
+                comuna_id: comuna.id,
+              },
+            });
+          }
+        }
       }
     }
 
-    // Luego crear o actualizar las restantes
-    for (const dir of direcciones) {
-      if (dir._delete) continue;
-
-      const comuna = await prisma.comuna.findFirst({
-        where: {
-          nombre: { equals: dir.comuna, mode: "insensitive" },
-          region: { nombre: { equals: dir.region, mode: "insensitive" } },
-        },
-        include: { region: true },
-      });
-      if (!comuna) continue;
-
-      if (!dir.id) {
-        await prisma.direccion.create({
-          data: {
-            calle: dir.calle.trim(),
-            usuario_id: BigInt(userData.id),
-            comuna_id: comuna.id,
-          },
-        });
-      } else {
-        await prisma.direccion.update({
-          where: { id: BigInt(dir.id) },
-          data: {
-            calle: dir.calle.trim(),
-            comuna_id: comuna.id,
-          },
-        });
-      }
-    }
-
-    // ===============================
-    // Devolver usuario actualizado
-    // ===============================
-    const usuarioActualizado = await prisma.usuario.findUnique({
-      where: { id: BigInt(userData.id) },
+    const userUpdated = await prisma.usuario.findUnique({
+      where: { id: userId },
       include: {
-        rol: true,
         direccion: {
-          include: { comuna: { include: { region: true } } },
+          include: {
+            comuna: { include: { region: true } },
+          },
         },
       },
     });
 
-    res.json({
-      message: "Perfil actualizado correctamente ✅",
-      user: JSON.parse(
-        JSON.stringify(usuarioActualizado, (_, v) =>
-          typeof v === "bigint" ? v.toString() : v
-        )
-      ),
+    res.json(
+      toJSONSafe({
+        message: "Perfil actualizado correctamente.",
+        user: userUpdated,
+      })
+    );
+
+  } catch (err: any) {
+    console.error("❌ Error al actualizar perfil:", err);
+    res.status(500).json({
+      error: err.message || "Error interno al actualizar perfil.",
     });
-  } catch (err) {
-    console.error("Error en PUT /profile:", err);
-    res.status(500).json({ error: "Error al actualizar perfil" });
   }
 });
-
-
 
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -4110,9 +4018,6 @@ app.delete("/admin/comentarios/:id", verifyAdmin, async (req, res) => {
     res.status(500).json({ error: "Error al eliminar comentario" });
   }
 });
-
-
-
 
 
 
