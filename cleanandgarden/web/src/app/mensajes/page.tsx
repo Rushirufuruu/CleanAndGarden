@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation'
 import { MessageCircle, Search, Plus } from 'lucide-react'
 import Link from 'next/link'
 
+function getWebSocketURL(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+  const wsUrl = apiUrl.replace(/^https?:\/\//, (match) => {
+    return match.startsWith('https') ? 'wss://' : 'ws://'
+  })
+  return `${wsUrl}/ws`
+}
+
 interface Usuario {
   id: number
   nombre: string
@@ -86,52 +94,81 @@ export default function MensajesPage() {
 
   // WebSocket para actualizar conversaciones en tiempo real
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:3001/ws')
-    socketRef.current = socket
+    let socket: WebSocket | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const RECONNECT_DELAY_MS = 2000;
 
-    socket.onopen = () => {
-      console.log('Conectado al WebSocket en conversaciones')
-    }
-
-    socket.onmessage = (event) => {
+    const connectWebSocket = () => {
       try {
-        const msg = JSON.parse(event.data)
-        if (msg.tipo === 'mensaje') {
-          // Actualizar la conversación correspondiente
-          setConversaciones((prev) =>
-            prev.map((conv) => {
-              if (conv.id === msg.conversacionId) {
-                return {
-                  ...conv,
-                  ultimoMensaje: {
-                    cuerpo: msg.cuerpo,
-                    fecha: msg.creadoEn,
-                    esMio: msg.remitenteId === usuarioActual?.id,
-                  },
-                }
-              }
-              return conv
-            })
-          )
+        const wsUrl = getWebSocketURL();
+        console.log('Conectando a WebSocket en conversaciones:', wsUrl);
+        socket = new WebSocket(wsUrl);
+        socketRef.current = socket;
+        reconnectAttempts = 0; // Reset intentos después de conexión exitosa
 
-          // Si el mensaje no es mío, incrementar contador de no leídos
-          if (msg.remitenteId !== usuarioActual?.id) {
-            setMensajesNoLeidos((prev) => ({
-              ...prev,
-              [msg.conversacionId]: (prev[msg.conversacionId] || 0) + 1,
-            }))
+        socket.onopen = () => {
+          console.log('Conectado al WebSocket en conversaciones')
+        }
+
+        socket.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data)
+            if (msg.tipo === 'mensaje') {
+              // Actualizar la conversación correspondiente
+              setConversaciones((prev) =>
+                prev.map((conv) => {
+                  if (conv.id === msg.conversacionId) {
+                    return {
+                      ...conv,
+                      ultimoMensaje: {
+                        cuerpo: msg.cuerpo,
+                        fecha: msg.creadoEn,
+                        esMio: msg.remitenteId === usuarioActual?.id,
+                      },
+                    }
+                  }
+                  return conv
+                })
+              )
+
+              // Si el mensaje no es mío, incrementar contador de no leídos
+              if (msg.remitenteId !== usuarioActual?.id) {
+                setMensajesNoLeidos((prev) => ({
+                  ...prev,
+                  [msg.conversacionId]: (prev[msg.conversacionId] || 0) + 1,
+                }))
+              }
+            }
+          } catch (err) {
+            console.error('Error procesando mensaje WebSocket:', err)
+          }
+        }
+
+        socket.onerror = (err) => console.error('Error WebSocket:', err)
+
+        socket.onclose = () => {
+          console.log('WebSocket cerrado en conversaciones')
+          // Intentar reconectar si no hemos excedido el máximo de reintentos
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            console.log(`Reintentando conexión WebSocket (intento ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) en ${RECONNECT_DELAY_MS}ms...`);
+            setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
+          } else {
+            console.error("Max WebSocket reconnection attempts reached");
           }
         }
       } catch (err) {
-        console.error('Error procesando mensaje WebSocket:', err)
+        console.error('Error creando WebSocket:', err)
       }
     }
 
-    socket.onerror = (err) => console.log('Error WebSocket:', err)
-    socket.onclose = () => console.log('WebSocket cerrado en conversaciones')
+    connectWebSocket();
 
     return () => {
-      socket.close()
+      if (socket) {
+        socket.close()
+      }
     }
   }, [usuarioActual?.id])
 

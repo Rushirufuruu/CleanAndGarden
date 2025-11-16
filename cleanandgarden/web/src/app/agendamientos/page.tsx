@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react"
 import Swal from 'sweetalert2'
 import { useRouter, useSearchParams } from "next/navigation"
+import { Download } from "lucide-react"
+import jsPDF from "jspdf"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
@@ -19,9 +21,7 @@ export default function AgendamientosPage() {
   const [sortBy, setSortBy] = useState<string>('fecha_desc')
   const [filteredCitas, setFilteredCitas] = useState<any[]>([])
   const [paymentResult, setPaymentResult] = useState<any>(null)
-  
-  // Estado para modal de detalles de pago
-  const [paymentModalData, setPaymentModalData] = useState<any>(null)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -55,56 +55,8 @@ export default function AgendamientosPage() {
   }, [])
 
   // Procesar retorno de Webpay si hay token_ws en URL
-  useEffect(() => {
-    const tokenWs = searchParams.get('token_ws')
-    if (tokenWs && !paymentResult) {
-      const processPayment = async () => {
-        try {
-          const res = await fetch(`${API}/payments/webpay/commit`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token_ws: tokenWs })
-          })
-
-          if (!res.ok) {
-            const b = await res.json().catch(() => ({}))
-            setPaymentResult({ error: b?.error ?? res.statusText })
-            await Swal.fire('Error en el pago', `No se pudo procesar el pago: ${b?.error ?? res.statusText}`, 'error')
-            return
-          }
-
-          const result = await res.json()
-          setPaymentResult(result)
-
-          // Limpiar la URL
-          router.replace('/agendamientos', { scroll: false })
-
-          // Recargar citas después del pago exitoso
-          if (result.status === 'AUTHORIZED' || result.status === 'success') {
-            await Swal.fire({
-              title: '¡Pago exitoso!',
-              text: 'Tu pago ha sido procesado correctamente.',
-              icon: 'success',
-              timer: 2000,
-              showConfirmButton: false
-            })
-            
-            // Recargar las citas para mostrar el estado actualizado
-            setTimeout(() => {
-              window.location.reload()
-            }, 1000)
-          }
-
-        } catch (err: any) {
-          console.error("Error procesando pago:", err)
-          setPaymentResult({ error: err?.message ?? "Error de conexión" })
-          await Swal.fire('Error', 'Error de conexión al procesar el pago.', 'error')
-        }
-      }
-      processPayment()
-    }
-  }, [searchParams, paymentResult, router])
+  // Nota: Ahora esto se maneja en /pago-exitoso
+  // Este código se mantiene por compatibilidad pero no debería ejecutarse
 
   // Efecto para aplicar filtros y ordenamiento
   useEffect(() => {
@@ -209,7 +161,7 @@ export default function AgendamientosPage() {
           buyOrder: `cita-${cita.id}`,
           sessionId: `usuario-${cita.usuario_cita_cliente_idTousuario?.id || 'cliente'}`,
           amount: monto,
-          returnUrl: `${window.location.origin}/agendamientos`
+          returnUrl: `${window.location.origin}/pago-exitoso`
         })
       })
 
@@ -244,19 +196,6 @@ export default function AgendamientosPage() {
       console.error("Error en iniciarPagoWebPay:", err)
       await Swal.fire('Error', 'Error de conexión al iniciar pago.', 'error')
     }
-  }
-
-  // Función para abrir modal de detalles de pago
-  const abrirModalPago = (cita: any) => {
-    const pagoAprobado = (cita.pago || []).find((p: any) => p.estado === 'aprobado')
-    if (pagoAprobado) {
-      setPaymentModalData({ cita, pago: pagoAprobado })
-    }
-  }
-
-  // Función para cerrar modal
-  const cerrarModalPago = () => {
-    setPaymentModalData(null)
   }
 
   const handleCancel = async (citaId: number) => {
@@ -345,6 +284,262 @@ export default function AgendamientosPage() {
     if (c.tecnico_nombre) return c.tecnico_nombre
     if (c.jardinero_nombre) return c.jardinero_nombre
     return '—'
+  }
+
+  // Función para descargar boleta en PDF
+  const descargarBoleta = async (cita: any) => {
+    const pago = (cita.pago || []).find((p: any) => p.estado === 'aprobado')
+    if (!pago) {
+      await Swal.fire('Error', 'No hay pago aprobado para esta cita', 'error')
+      return
+    }
+
+    setDownloadingPdf(true)
+    try {
+      // Obtener detalles completos de la cita del backend
+      let citaCompleta = cita
+      try {
+        const res = await fetch(`${API}/citas/${cita.id}`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        })
+        if (res.ok) {
+          citaCompleta = await res.json()
+          console.log('Cita completa obtenida:', citaCompleta)
+          console.log('Visita producto:', citaCompleta.visita?.visita_producto)
+        }
+      } catch (err) {
+        console.error('Error obteniendo detalles completos:', err)
+        // Continuar con los datos que tenemos
+      }
+
+      const pdf = new jsPDF()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      let yPosition = 15
+
+      // Encabezado
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(18)
+      pdf.text("CLEAN & GARDEN", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 8
+
+      pdf.setFontSize(10)
+      pdf.setFont("helvetica", "normal")
+      pdf.text("Servicios de Limpieza y Jardinería", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 5
+      pdf.text("RUT: 76.123.456-K | Tel: (2) 2345 6789", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 10
+
+      // Línea separadora
+      pdf.setDrawColor(0, 120, 50)
+      pdf.line(15, yPosition, pageWidth - 15, yPosition)
+      yPosition += 8
+
+      // Título del documento
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(14)
+      pdf.text("BOLETA DE PAGO", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 10
+
+      // Información de la boleta
+      pdf.setFont("helvetica", "normal")
+      pdf.setFontSize(10)
+      pdf.text(`Número de Orden: cita-${citaCompleta.id}`, 15, yPosition)
+      yPosition += 6
+      pdf.text(`Fecha: ${new Date().toLocaleDateString('es-CL')}`, 15, yPosition)
+      yPosition += 6
+      pdf.text(`Hora: ${new Date().toLocaleTimeString('es-CL')}`, 15, yPosition)
+      yPosition += 10
+
+      // Detalles de pago
+      pdf.setFont("helvetica", "bold")
+      pdf.text("DETALLES DE PAGO", 15, yPosition)
+      yPosition += 7
+
+      pdf.setFont("helvetica", "normal")
+      pdf.text(`Monto: $${Number(pago.monto_clp || citaCompleta.precio_aplicado || 0).toLocaleString('es-CL')}`, 20, yPosition)
+      yPosition += 6
+      pdf.text(`Método: ${pago.metodo || 'WebPay'}`, 20, yPosition)
+      yPosition += 6
+      pdf.text(`Estado: PAGADO`, 20, yPosition)
+      yPosition += 10
+
+      // Detalles del servicio
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(10)
+      pdf.text("DETALLES DEL SERVICIO", 15, yPosition)
+      yPosition += 7
+
+      pdf.setFont("helvetica", "normal")
+      pdf.setFontSize(9)
+      
+      if (citaCompleta.servicio?.nombre) {
+        pdf.text(`Servicio: ${citaCompleta.servicio.nombre}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      if (citaCompleta.fecha || citaCompleta.fecha_hora || citaCompleta.hora_inicio) {
+        const fecha = new Date(citaCompleta.fecha_hora || citaCompleta.hora_inicio || citaCompleta.fecha)
+        pdf.text(`Fecha: ${fecha.toLocaleDateString('es-CL')}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      if (citaCompleta.hora) {
+        pdf.text(`Hora: ${citaCompleta.hora}`, 20, yPosition)
+        yPosition += 5
+      }
+
+      // Dirección
+      const dir = getDireccionText(citaCompleta)
+      if (dir !== '—') {
+        pdf.text(`Dirección: ${dir}`, 20, yPosition)
+        yPosition += 5
+      }
+
+      // TABLA DE RESUMEN DE PRECIOS
+      yPosition += 5
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(10)
+      pdf.text("RESUMEN DE PRECIOS", 15, yPosition)
+      yPosition += 8
+
+      // Encabezados de tabla
+      const col1 = 15
+      const col2 = 90
+      const col3 = 130
+      const col4 = 160
+      const col5 = 190
+      const rowHeight = 6
+
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(8)
+      
+      // Línea de encabezado
+      pdf.rect(col1, yPosition - 3, 180, rowHeight)
+      pdf.text("Concepto", col1 + 2, yPosition)
+      pdf.text("Cantidad", col2 + 2, yPosition)
+      pdf.text("P. Unitario", col3 + 2, yPosition)
+      pdf.text("Total", col5 - 10, yPosition)
+      yPosition += rowHeight + 1
+
+      pdf.setFont("helvetica", "normal")
+      pdf.setFontSize(8)
+
+      // Fila del servicio
+      const servicioName = citaCompleta.servicio?.nombre || 'Servicio'
+      // Obtener el precio del servicio, si no está disponible, calcular restando los insumos del total
+      let precioServicio = Number(citaCompleta.servicio?.precio || 0)
+      
+      // Si no tenemos el precio del servicio, intentar obtenerlo del diferencial
+      if (precioServicio === 0 && citaCompleta.precio_aplicado) {
+        const totalInsumosPrevio = (citaCompleta.visita?.visita_producto || []).reduce((sum: number, vp: any) => {
+          return sum + Number(vp.costo_total || 0)
+        }, 0)
+        precioServicio = Number(citaCompleta.precio_aplicado) - totalInsumosPrevio
+      }
+      
+      pdf.text(servicioName, col1 + 2, yPosition)
+      pdf.text("1", col2 + 2, yPosition)
+      pdf.text(`$${precioServicio.toLocaleString('es-CL')}`, col3 + 2, yPosition)
+      pdf.text(`$${precioServicio.toLocaleString('es-CL')}`, col5 - 10, yPosition)
+      yPosition += rowHeight
+
+      // Filas de insumos (si existen)
+      let totalInsumos = 0
+      if (citaCompleta.visita?.visita_producto && citaCompleta.visita.visita_producto.length > 0) {
+        citaCompleta.visita.visita_producto.forEach((vp: any) => {
+          const insumeName = vp.producto?.nombre || 'Insumo desconocido'
+          const cantidad = vp.cantidad || 1
+          // Los precios vienen directamente en visita_producto
+          const precioUnitario = Number(vp.costo_unitario || vp.precio || vp.producto?.precio || 0)
+          const precioTotal = Number(vp.costo_total || precioUnitario * cantidad || 0)
+          totalInsumos += precioTotal
+
+          pdf.text(insumeName, col1 + 2, yPosition)
+          pdf.text(String(cantidad), col2 + 2, yPosition)
+          pdf.text(`$${precioUnitario.toLocaleString('es-CL')}`, col3 + 2, yPosition)
+          pdf.text(`$${precioTotal.toLocaleString('es-CL')}`, col5 - 10, yPosition)
+          yPosition += rowHeight
+        })
+      }
+
+      // Línea de separación
+      pdf.setDrawColor(150, 150, 150)
+      pdf.line(col1, yPosition, col5, yPosition)
+      yPosition += 2
+
+      // Fila de total
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(9)
+      const totalFinal = precioServicio + totalInsumos
+      pdf.text("TOTAL", col1 + 2, yPosition + 2)
+      pdf.text(`$${totalFinal.toLocaleString('es-CL')}`, col5 - 10, yPosition + 2)
+      yPosition += 10
+
+      yPosition += 5
+
+      // Información del cliente
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(9)
+      pdf.text("INFORMACIÓN DEL CLIENTE", 15, yPosition)
+      yPosition += 6
+
+      pdf.setFont("helvetica", "normal")
+      pdf.setFontSize(9)
+      const clientName = getClientName(citaCompleta)
+      if (clientName !== '—') {
+        pdf.text(`Nombre: ${clientName}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      // Email del cliente
+      const clientEmail = citaCompleta.usuario?.email || citaCompleta.usuario_cita_cliente_idTousuario?.email || citaCompleta.email || '—'
+      if (clientEmail !== '—') {
+        pdf.text(`Email: ${clientEmail}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      // Teléfono del cliente
+      const clientPhone = citaCompleta.usuario?.telefono || citaCompleta.usuario_cita_cliente_idTousuario?.telefono || citaCompleta.telefono || '—'
+      if (clientPhone && clientPhone !== '—') {
+        pdf.text(`Teléfono: ${clientPhone}`, 20, yPosition)
+        yPosition += 5
+      }
+
+      yPosition += 5
+
+      // Línea separadora
+      pdf.setDrawColor(200, 200, 200)
+      pdf.line(15, yPosition, pageWidth - 15, yPosition)
+      yPosition += 8
+
+      // Footer
+      pdf.setFont("helvetica", "italic")
+      pdf.setFontSize(8)
+      pdf.text("Muchas gracias por tu pago", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 5
+      pdf.text("Para consultas o problemas, contacta a soporte@cleanandgarden.cl", pageWidth / 2, yPosition, { align: "center" })
+      yPosition += 5
+      pdf.text(`Comprobante generado: ${new Date().toLocaleString('es-CL')}`, pageWidth / 2, yPosition, { align: "center" })
+
+      // Descargar PDF
+      pdf.save(`Boleta_cita-${cita.id}.pdf`)
+      await Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Boleta descargada',
+        showConfirmButton: false,
+        timer: 1500
+      })
+      setDownloadingPdf(false)
+    } catch (err) {
+      console.error("Error descargando PDF:", err)
+      await Swal.fire('Error', 'Error al descargar la boleta. Intenta nuevamente.', 'error')
+      setDownloadingPdf(false)
+    }
   }
 
   // Componente interno: intenta cargar la dirección del jardín por fallback
@@ -450,7 +645,17 @@ export default function AgendamientosPage() {
                       <div className="text-sm text-gray-600">Jardín: {c.jardin?.nombre ?? '—'}</div>
                     </div>
                     <div className="ml-4 text-right">
-                      <div className="text-sm mb-2">{c.estado ?? '—'}</div>
+                      <div className="text-sm mb-2">
+                        {c.estado === 'realizada' ? (
+                          isCitaPagada(c) ? (
+                            <span className="text-green-600 font-medium">Realizado ✓</span>
+                          ) : (
+                            <span className="text-orange-600 font-medium">Realizado sin pagar</span>
+                          )
+                        ) : (
+                          c.estado ? c.estado.charAt(0).toUpperCase() + c.estado.slice(1) : '—'
+                        )}
+                      </div>
                       <button onClick={() => setExpandedId(expanded ? null : id)} className="text-sm px-3 py-1 rounded bg-gray-100">{expanded ? 'Ocultar' : 'Ver detalle'}</button>
                     </div>
                   </div>
@@ -501,25 +706,29 @@ export default function AgendamientosPage() {
                       { c.estado === 'realizada' && (
                         <div className="mt-2">
                           {isCitaPagada(c) ? (
-                            <div className="flex items-center gap-2">
-                              <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-sm font-medium">
-                                ✓ Servicio pagado
-                              </span>
+                            <>
+                              <div className="mb-2">
+                                <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-sm font-medium">
+                                  ✓ Servicio pagado
+                                </span>
+                              </div>
                               <button
-                                onClick={() => abrirModalPago(c)}
-                                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition-colors"
+                                onClick={() => descargarBoleta(c)}
+                                disabled={downloadingPdf}
+                                className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:bg-blue-400 transition-colors"
                               >
-                                Ver detalles
+                                <Download className="w-4 h-4" />
+                                {downloadingPdf ? 'Descargando...' : 'Descargar Boleta (PDF)'}
                               </button>
-                            </div>
+                            </>
                           ) : tienePagoPendiente(c) ? (
                             <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 text-sm font-medium">
                               ⏳ Pago pendiente
                             </span>
                           ) : (
                             <div className="flex flex-col gap-2">
-                              <span className="px-2 py-1 rounded bg-red-100 text-red-800 text-sm font-medium">
-                                ❌ Servicio sin pagar
+                              <span className="px-2 py-1 rounded bg-orange-100 text-orange-800 text-sm font-medium">
+                                Realizado sin pagar
                               </span>
                               <button
                                 onClick={() => iniciarPagoWebPay(c)}
@@ -540,100 +749,6 @@ export default function AgendamientosPage() {
         )}
 
       </div>
-
-      {/* Modal de detalles de pago */}
-      {paymentModalData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-[#2E5430]">Detalles del Pago</h3>
-                <button
-                  onClick={cerrarModalPago}
-                  className="text-gray-500 hover:text-gray-700 text-xl"
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {/* Información de la cita */}
-                <div className="border-b pb-3">
-                  <h4 className="font-semibold text-gray-800 mb-2">Servicio</h4>
-                  <p className="text-sm text-gray-600">
-                    {paymentModalData.cita.servicio?.nombre || 'Servicio'}
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    ID Cita: {paymentModalData.cita.id}
-                  </p>
-                </div>
-
-                {/* Información del pago */}
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-gray-800">Información del Pago</h4>
-                  
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="font-medium text-gray-600">ID Pago:</span>
-                      <p className="text-gray-800">{paymentModalData.pago.id}</p>
-                    </div>
-                    
-                    <div>
-                      <span className="font-medium text-gray-600">Estado:</span>
-                      <p className="text-green-600 font-medium">{paymentModalData.pago.estado}</p>
-                    </div>
-                    
-                    <div>
-                      <span className="font-medium text-gray-600">Método:</span>
-                      <p className="text-gray-800">{paymentModalData.pago.metodo || 'WebPay'}</p>
-                    </div>
-                    
-                    <div>
-                      <span className="font-medium text-gray-600">Monto:</span>
-                      <p className="text-gray-800 font-medium">
-                        ${Number(paymentModalData.pago.monto_clp || 0).toLocaleString('es-CL')} CLP
-                      </p>
-                    </div>
-                    
-                    <div className="col-span-2">
-                      <span className="font-medium text-gray-600">Fecha de pago:</span>
-                      <p className="text-gray-800">
-                        {paymentModalData.pago.creado_en 
-                          ? new Date(paymentModalData.pago.creado_en).toLocaleString('es-CL')
-                          : 'No disponible'
-                        }
-                      </p>
-                    </div>
-                    
-                    {paymentModalData.pago.flow_order_id && (
-                      <div className="col-span-2">
-                        <span className="font-medium text-gray-600">Orden Flow:</span>
-                        <p className="text-gray-800 text-xs break-all">{paymentModalData.pago.flow_order_id}</p>
-                      </div>
-                    )}
-                    
-                    {paymentModalData.pago.flow_status && (
-                      <div className="col-span-2">
-                        <span className="font-medium text-gray-600">Estado Flow:</span>
-                        <p className="text-gray-800">{paymentModalData.pago.flow_status}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={cerrarModalPago}
-                  className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   )
