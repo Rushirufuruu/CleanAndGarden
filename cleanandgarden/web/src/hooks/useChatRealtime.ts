@@ -2,6 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Función centralizada para obtener URL del WebSocket
+function getWebSocketURL(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+  // Convertir http/https → ws/wss
+  const wsUrl = apiUrl.replace(/^https?:\/\//, (match) => {
+    return match.startsWith("https") ? "wss://" : "ws://";
+  });
+  return `${wsUrl}/ws`;
+}
+
 export interface Mensaje {
   id: number;
   conversacionId: number;
@@ -19,8 +29,9 @@ export function useChatRealtime(conversacionId: number) {
   useEffect(() => {
     async function fetchMensajes() {
       try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
         const res = await fetch(
-          `http://localhost:3001/conversaciones/${conversacionId}/mensajes`,
+          `${apiUrl}/conversaciones/${conversacionId}/mensajes`,
           {
             credentials: "include", // envía la cookie JWT
           }
@@ -53,53 +64,86 @@ export function useChatRealtime(conversacionId: number) {
 
   // 2) Conectarse al WebSocket para recibir mensajes en tiempo real
   useEffect(() => {
-    const socket = new WebSocket("ws://localhost:3001/ws");
-    socketRef.current = socket;
+    let socket: WebSocket | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const RECONNECT_DELAY_MS = 2000;
 
-    socket.onopen = () => {
-      console.log("Conectado al WebSocket");
-      socket.send(
-        JSON.stringify({
-          tipo: "join",
-          conversacionId,
-        })
-      );
-    };
-
-    socket.onmessage = (event) => {
+    const connectWebSocket = () => {
       try {
-        const msg = JSON.parse(event.data);
-        console.log('WebSocket recibido:', msg);
-        if (msg.tipo === 'error') {
-          console.error('WebSocket error:', msg.error, 'Datos recibidos:', event.data);
-        }
+        const wsUrl = getWebSocketURL();
+        console.log("Conectando a WebSocket:", wsUrl);
+        socket = new WebSocket(wsUrl);
+        socketRef.current = socket;
+        reconnectAttempts = 0; // Reset intentos después de conexión exitosa
 
-        if (msg.tipo === "mensaje") {
-          // Solo agregar si el mensaje es de la conversación actual
-          if (msg.conversacionId === conversacionId) {
-            const mensajeFormateado: Mensaje = {
-              id: msg.id,
-              conversacionId: msg.conversacionId,
-              remitenteId: msg.remitenteId,
-              cuerpo: msg.cuerpo,
-              creadoEn: msg.creadoEn,
-            };
-            setMensajes((prev) => {
-              // Evitar duplicados por si el mensaje ya está
-              if (prev.some(m => m.id === mensajeFormateado.id)) return prev;
-              return [...prev, mensajeFormateado];
-            });
+        socket.onopen = () => {
+          console.log("Conectado al WebSocket");
+          socket?.send(
+            JSON.stringify({
+              tipo: "join",
+              conversacionId,
+            })
+          );
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            console.log('WebSocket recibido:', msg);
+            if (msg.tipo === 'error') {
+              console.error('WebSocket error:', msg.error, 'Datos recibidos:', event.data);
+            }
+
+            if (msg.tipo === "mensaje") {
+              // Solo agregar si el mensaje es de la conversación actual
+              if (msg.conversacionId === conversacionId) {
+                const mensajeFormateado: Mensaje = {
+                  id: msg.id,
+                  conversacionId: msg.conversacionId,
+                  remitenteId: msg.remitenteId,
+                  cuerpo: msg.cuerpo,
+                  creadoEn: msg.creadoEn,
+                };
+                setMensajes((prev) => {
+                  // Evitar duplicados por si el mensaje ya está
+                  if (prev.some(m => m.id === mensajeFormateado.id)) return prev;
+                  return [...prev, mensajeFormateado];
+                });
+              }
+            }
+          } catch (err) {
+            console.error("Error al procesar mensaje WebSocket:", err);
           }
-        }
+        };
+
+        socket.onerror = (err) => {
+          console.error("Error WebSocket:", err);
+        };
+
+        socket.onclose = () => {
+          console.log("Conexión WebSocket cerrada");
+          // Intentar reconectar si no hemos excedido el máximo de reintentos
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            console.log(`Reintentando conexión WebSocket (intento ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) en ${RECONNECT_DELAY_MS}ms...`);
+            setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
+          } else {
+            console.error("Max WebSocket reconnection attempts reached");
+          }
+        };
       } catch (err) {
-        console.error("Error al procesar mensaje WebSocket:", err);
+        console.error("Error creando WebSocket:", err);
       }
     };
 
-    socket.onerror = (err) => console.log("Error WebSocket:", err);
-    socket.onclose = () => console.log("Conexión WebSocket cerrada");
+    connectWebSocket();
 
-    return () => socket.close();
+    return () => {
+      if (socket) {
+        socket.close();
+      }
+    };
   }, [conversacionId]);
 
   // 3) Enviar mensaje (HTTP + WebSocket broadcast)
@@ -108,7 +152,8 @@ export function useChatRealtime(conversacionId: number) {
     if (!text) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/mensajes`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      const res = await fetch(`${apiUrl}/mensajes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

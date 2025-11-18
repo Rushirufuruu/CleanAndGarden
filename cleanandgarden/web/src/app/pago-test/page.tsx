@@ -101,7 +101,7 @@ function PagoTestContent() {
           buyOrder: `cita-${cita.id}`,
           sessionId: `usuario-${cita.usuario_id}`,
           amount: monto,
-          returnUrl: "http://localhost:3000/pago-test" // mismo front como retorno
+          returnUrl: typeof window !== 'undefined' ? `${window.location.origin}/pago-exitoso` : "http://localhost:3000/pago-exitoso"
         })
       })
 
@@ -145,22 +145,6 @@ function PagoTestContent() {
           Revisa el estado de tus citas y pagos. Las citas pagadas aparecen en verde con detalles del pago.
           Usa tarjetas de prueba de Transbank para probar pagos.
         </p>
-
-        {paymentResult && (
-          <div className={`p-4 mb-4 rounded ${paymentResult.error ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-            <h2 className="font-bold">Resultado del pago:</h2>
-            {paymentResult.error ? (
-              <p>Error: {paymentResult.error}</p>
-            ) : (
-              <div>
-                <p>Estado: {paymentResult.status}</p>
-                <p>Orden: {paymentResult.buy_order}</p>
-                <p>Monto: ${paymentResult.amount}</p>
-                <p>Pago procesado exitosamente. Recargando página...</p>
-              </div>
-            )}
-          </div>
-        )}
 
         {loading ? (
           <div>Cargando...</div>
