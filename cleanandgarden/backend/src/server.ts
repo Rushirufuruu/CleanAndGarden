@@ -6403,11 +6403,11 @@ app.get("/admin/reportes/finanzas/excel", verifyAdmin, async (req, res) => {
       ["Monto Mínimo", `$${minimo.toLocaleString("es-CL")}`],
     ]);
 
-    resumenSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
+    resumenSheet.getRow(1).eachCell((c: any) => c.style = { ...headerStyle } as any);
 
-    resumenSheet.eachRow((row, idx) => {
+    resumenSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => c.border = { ...border } as any);
+      row.eachCell((c: any) => c.border = { ...border } as any);
     });
 
     // -----------------------------------------
@@ -6429,10 +6429,10 @@ app.get("/admin/reportes/finanzas/excel", verifyAdmin, async (req, res) => {
       });
     });
 
-    diaSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
-    diaSheet.eachRow((row, idx) => {
+    diaSheet.getRow(1).eachCell((c: any) => c.style = { ...headerStyle } as any);
+    diaSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => c.border = { ...border } as any);
+      row.eachCell((c: any) => c.border = { ...border } as any);
     });
 
     // -----------------------------------------
@@ -6458,10 +6458,10 @@ app.get("/admin/reportes/finanzas/excel", verifyAdmin, async (req, res) => {
       });
     });
 
-    detalleSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
-    detalleSheet.eachRow((row, idx) => {
+    detalleSheet.getRow(1).eachCell((c: any) => c.style = { ...headerStyle } as any);
+    detalleSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => c.border = { ...border } as any);
+      row.eachCell((c: any) => c.border = { ...border } as any);
     });
 
     // -----------------------------------------
@@ -7490,13 +7490,13 @@ app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
       ["Pendientes", resumen.pendientes],
     ]);
 
-    resumenSheet.getRow(1).eachCell(cell => {
+    resumenSheet.getRow(1).eachCell((cell: any) => {
       cell.style = { ...headerStyle } as any;
     });
 
-    resumenSheet.eachRow((row, idx) => {
+    resumenSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(cell => {
+      row.eachCell((cell: any) => {
         cell.border = { ...border } as any;
       });
     });
@@ -7517,10 +7517,10 @@ app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
 
     Object.keys(porDia).forEach(k => diaSheet.addRow({ fecha: k, ...porDia[k] }));
 
-    diaSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
-    diaSheet.eachRow((row, idx) => {
+    diaSheet.getRow(1).eachCell((c: any) => (c.style = { ...headerStyle } as any));
+    diaSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => (c.border = { ...border } as any));
+      row.eachCell((c: any) => (c.border = { ...border } as any));
     });
 
     // ======================
@@ -7548,10 +7548,10 @@ app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
       })
     );
 
-    tecSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
-    tecSheet.eachRow((row, idx) => {
+    tecSheet.getRow(1).eachCell((c: any) => (c.style = { ...headerStyle } as any));
+    tecSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => (c.border = { ...border } as any));
+      row.eachCell((c: any) => (c.border = { ...border } as any));
     });
 
     // ======================
@@ -7579,10 +7579,10 @@ app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
       })
     );
 
-    srvSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
-    srvSheet.eachRow((row, idx) => {
+    srvSheet.getRow(1).eachCell((c: any) => (c.style = { ...headerStyle } as any));
+    srvSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => (c.border = { ...border } as any));
+      row.eachCell((c: any) => (c.border = { ...border } as any));
     });
 
     // ======================
@@ -7612,10 +7612,10 @@ app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
       });
     });
 
-    detSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
-    detSheet.eachRow((row, idx) => {
+    detSheet.getRow(1).eachCell((c: any) => (c.style = { ...headerStyle } as any));
+    detSheet.eachRow((row: any, idx: any) => {
       if (idx === 1) return;
-      row.eachCell(c => (c.border = { ...border } as any));
+      row.eachCell((c: any) => (c.border = { ...border } as any));
     });
 
     // ======================
