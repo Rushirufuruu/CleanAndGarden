@@ -322,15 +322,13 @@ export default function AgendamientosPage() {
       // Encabezado
       pdf.setFont("helvetica", "bold")
       pdf.setFontSize(18)
-      pdf.text("CLEAN & GARDEN", pageWidth / 2, yPosition, { align: "center" })
+      pdf.text("CLEAN AND GARDEN", pageWidth / 2, yPosition, { align: "center" })
       yPosition += 8
 
       pdf.setFontSize(10)
       pdf.setFont("helvetica", "normal")
       pdf.text("Servicios de Limpieza y Jardinería", pageWidth / 2, yPosition, { align: "center" })
       yPosition += 5
-      pdf.text("RUT: 76.123.456-K | Tel: (2) 2345 6789", pageWidth / 2, yPosition, { align: "center" })
-      yPosition += 10
 
       // Línea separadora
       pdf.setDrawColor(0, 120, 50)
@@ -397,6 +395,38 @@ export default function AgendamientosPage() {
         pdf.text(`Dirección: ${dir}`, 20, yPosition)
         yPosition += 5
       }
+
+      yPosition += 5
+      
+      // Información del cliente
+      pdf.setFont("helvetica", "bold")
+      pdf.setFontSize(9)
+      pdf.text("INFORMACIÓN DEL CLIENTE", 15, yPosition)
+      yPosition += 6
+
+      pdf.setFont("helvetica", "normal")
+      pdf.setFontSize(9)
+      const clientName = getClientName(citaCompleta)
+      if (clientName !== '—') {
+        pdf.text(`Nombre: ${clientName}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      // Email del cliente
+      const clientEmail = citaCompleta.usuario?.email || citaCompleta.usuario_cita_cliente_idTousuario?.email || citaCompleta.email || '—'
+      if (clientEmail !== '—') {
+        pdf.text(`Email: ${clientEmail}`, 20, yPosition)
+        yPosition += 5
+      }
+      
+      // Teléfono del cliente
+      const clientPhone = citaCompleta.usuario?.telefono || citaCompleta.usuario_cita_cliente_idTousuario?.telefono || citaCompleta.telefono || '—'
+      if (clientPhone && clientPhone !== '—') {
+        pdf.text(`Teléfono: ${clientPhone}`, 20, yPosition)
+        yPosition += 5
+      }
+
+      yPosition += 5
 
       // TABLA DE RESUMEN DE PRECIOS
       yPosition += 5
@@ -480,35 +510,6 @@ export default function AgendamientosPage() {
 
       yPosition += 5
 
-      // Información del cliente
-      pdf.setFont("helvetica", "bold")
-      pdf.setFontSize(9)
-      pdf.text("INFORMACIÓN DEL CLIENTE", 15, yPosition)
-      yPosition += 6
-
-      pdf.setFont("helvetica", "normal")
-      pdf.setFontSize(9)
-      const clientName = getClientName(citaCompleta)
-      if (clientName !== '—') {
-        pdf.text(`Nombre: ${clientName}`, 20, yPosition)
-        yPosition += 5
-      }
-      
-      // Email del cliente
-      const clientEmail = citaCompleta.usuario?.email || citaCompleta.usuario_cita_cliente_idTousuario?.email || citaCompleta.email || '—'
-      if (clientEmail !== '—') {
-        pdf.text(`Email: ${clientEmail}`, 20, yPosition)
-        yPosition += 5
-      }
-      
-      // Teléfono del cliente
-      const clientPhone = citaCompleta.usuario?.telefono || citaCompleta.usuario_cita_cliente_idTousuario?.telefono || citaCompleta.telefono || '—'
-      if (clientPhone && clientPhone !== '—') {
-        pdf.text(`Teléfono: ${clientPhone}`, 20, yPosition)
-        yPosition += 5
-      }
-
-      yPosition += 5
 
       // Línea separadora
       pdf.setDrawColor(200, 200, 200)
@@ -518,9 +519,9 @@ export default function AgendamientosPage() {
       // Footer
       pdf.setFont("helvetica", "italic")
       pdf.setFontSize(8)
-      pdf.text("Muchas gracias por tu pago", pageWidth / 2, yPosition, { align: "center" })
+      pdf.text("Muchas gracias por tu preferencia", pageWidth / 2, yPosition, { align: "center" })
       yPosition += 5
-      pdf.text("Para consultas o problemas, contacta a soporte@cleanandgarden.cl", pageWidth / 2, yPosition, { align: "center" })
+      pdf.text("Para consultas o problemas, contacta a un administrador usando la función de mensajes en la página", pageWidth / 2, yPosition, { align: "center" })
       yPosition += 5
       pdf.text(`Comprobante generado: ${new Date().toLocaleString('es-CL')}`, pageWidth / 2, yPosition, { align: "center" })
 
@@ -718,7 +719,7 @@ export default function AgendamientosPage() {
                                 className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:bg-blue-400 transition-colors"
                               >
                                 <Download className="w-4 h-4" />
-                                {downloadingPdf ? 'Descargando...' : 'Descargar Boleta (PDF)'}
+                                {downloadingPdf ? 'Descargando...' : 'Descargar Boleta'}
                               </button>
                             </>
                           ) : tienePagoPendiente(c) ? (
