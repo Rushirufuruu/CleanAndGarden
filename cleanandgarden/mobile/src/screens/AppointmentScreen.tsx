@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Alert,
   TouchableOpacity,
   Modal,
+  AppState,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,6 +22,7 @@ export default function AppointmentScreen() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [role, setRole] = useState<string | null>(null);
 
   // Filtros
@@ -36,13 +39,19 @@ export default function AppointmentScreen() {
   const [selectedCita, setSelectedCita] = useState<any>(null);
   const [showDetalleModal, setShowDetalleModal] = useState(false);
 
+  // Para detectar cuando la app vuelve del background
+  const appState = useRef(AppState.currentState);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchAppointments = async () => {
       try {
         setLoading(true);
+        
         const email = await AsyncStorage.getItem("userEmail");
         const storedRole = await AsyncStorage.getItem("userRole");
         setRole(storedRole);
+        setUserEmail(email);
 
         if (!email) {
           Alert.alert("Error", "No se pudo obtener la sesión.");
@@ -69,7 +78,46 @@ export default function AppointmentScreen() {
     fetchAppointments();
   }, []);
 
-  // 🔍 Aplicar filtros
+
+  // Listener para eventos de notificaciones (refrescar automáticamente)
+  useEffect(() => {
+    const handleRefresh = async () => {
+      console.log('🔔 Evento recibido: Refrescando citas...');
+      setRefreshing(true);
+      
+      try {
+        const email = await AsyncStorage.getItem("userEmail");
+        const storedRole = await AsyncStorage.getItem("userRole");
+
+        if (!email) return;
+
+        let url = storedRole === "admin" 
+          ? `${API_URL}/citas/all`
+          : `${API_URL}/citas/${encodeURIComponent(email)}`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Error al obtener citas");
+
+        const data = await res.json();
+        setAppointments(data);
+        setFiltered(data);
+        
+        // ❌ NO sincronizar aquí para evitar loop infinito
+        // if (storedRole !== "admin" && email) {
+        //   await sincronizarNotificaciones(email);
+        // }
+        
+        console.log(`✅ Citas refrescadas: ${data.length}`);
+      } catch (err: any) {
+        console.error("Error al refrescar:", err.message);
+      } finally {
+        setRefreshing(false);
+      }
+    };
+
+  }, []);
+
+  // �🔍 Aplicar filtros
   useEffect(() => {
     let temp = [...appointments];
 
@@ -177,6 +225,66 @@ export default function AppointmentScreen() {
     }
   };
 
+  const handleCancelarCita = async (citaId: number) => {
+    Alert.alert(
+      "Cancelar Cita",
+      "¿Estás seguro de que deseas cancelar esta cita?",
+      [
+        {
+          text: "No",
+          style: "cancel",
+        },
+        {
+          text: "Sí, cancelar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_URL}/cita/${citaId}/cancelar`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json();
+                const errorMessage = errorData.error || "Error al cancelar la cita";
+                
+                // Mensaje específico para error de plazo
+                if (errorMessage.includes("Plazo de cancelación expirado")) {
+                  Alert.alert(
+                    "❌ No se puede cancelar", 
+                    "El plazo para cancelar esta cita ha expirado.\n\nLas citas solo pueden cancelarse hasta las 12:00 del día anterior."
+                  );
+                } else {
+                  Alert.alert("❌ Error", errorMessage);
+                }
+                return;
+              }
+
+              Alert.alert("✅ Éxito", "La cita ha sido cancelada correctamente");
+              
+              // Actualizar la lista local
+              const updatedAppointments = appointments.map((cita) =>
+                cita.id === citaId ? { ...cita, estado: "cancelada" } : cita
+              );
+              setAppointments(updatedAppointments);
+              
+              // Actualizar la cita seleccionada en el modal
+              if (selectedCita && selectedCita.id === citaId) {
+                setSelectedCita({ ...selectedCita, estado: "cancelada" });
+              }
+              
+              setShowDetalleModal(false);
+            } catch (error: any) {
+              Alert.alert("❌ Error", error.message || "No se pudo cancelar la cita");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       {/* 🔽 FILTROS FIJOS */}
@@ -225,6 +333,41 @@ export default function AppointmentScreen() {
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderAppointment}
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  console.log('🔄 Pull to refresh activado');
+                  setRefreshing(true);
+                  
+                  try {
+                    const email = await AsyncStorage.getItem("userEmail");
+                    const storedRole = await AsyncStorage.getItem("userRole");
+
+                    if (!email) return;
+
+                    let url = storedRole === "admin" 
+                      ? `${API_URL}/citas/all`
+                      : `${API_URL}/citas/${encodeURIComponent(email)}`;
+
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error("Error al obtener citas");
+
+                    const data = await res.json();
+                    setAppointments(data);
+                    setFiltered(data);
+                    
+                    console.log(`✅ Citas refrescadas manualmente: ${data.length}`);
+                  } catch (err: any) {
+                    console.error("Error al refrescar:", err.message);
+                  } finally {
+                    setRefreshing(false);
+                  }
+                }}
+                colors={['#2E5430']}
+                tintColor="#2E5430"
+              />
+            }
           />
         )}
       </View>
@@ -428,25 +571,33 @@ export default function AppointmentScreen() {
                       </View>
                     </View>
                   )}
-
-                  {/* ID de Cita */}
-                  <View style={styles.detalleRow}>
-                    <Ionicons name="barcode" size={24} color="#2E5430" />
-                    <View style={styles.detalleInfo}>
-                      <Text style={styles.detalleLabel}>ID de Cita</Text>
-                      <Text style={styles.detalleSubValue}>#{selectedCita.id}</Text>
-                    </View>
-                  </View>
+                  
                 </View>
               )}
 
-              {/* Botón Cerrar */}
-              <TouchableOpacity
-                style={styles.detalleCloseButton}
-                onPress={() => setShowDetalleModal(false)}
-              >
-                <Text style={styles.detalleCloseButtonText}>Cerrar</Text>
-              </TouchableOpacity>
+              {/* Botones de Acción */}
+              <View style={styles.detalleButtons}>
+                {/* Botón Cancelar - Solo si no está cancelada o realizada */}
+                {selectedCita && 
+                 selectedCita.estado !== "cancelada" && 
+                 selectedCita.estado !== "realizada" && (
+                  <TouchableOpacity
+                    style={styles.detalleCancelarButton}
+                    onPress={() => handleCancelarCita(selectedCita.id)}
+                  >
+                    <Ionicons name="close-circle-outline" size={20} color="#fff" />
+                    <Text style={styles.detalleCancelarButtonText}>Cancelar Cita</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Botón Cerrar */}
+                <TouchableOpacity
+                  style={styles.detalleCloseButton}
+                  onPress={() => setShowDetalleModal(false)}
+                >
+                  <Text style={styles.detalleCloseButtonText}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -640,6 +791,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     textTransform: "capitalize",
+  },
+  detalleButtons: {
+    gap: 10,
+  },
+  detalleCancelarButton: {
+    backgroundColor: "#DC2626",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  detalleCancelarButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   detalleCloseButton: {
     backgroundColor: "#2E5430",

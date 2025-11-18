@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "767361603858",
+    "project_id": "clean-garden",
+    "storage_bucket": "clean-garden.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:767361603858:android:721158a0293328b33cfbcb",
+        "android_client_info": {
+          "package_name": "com.cleanandgarden.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyACPdldE59Sc50SiSOhiynnO1jyBy9lJsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
