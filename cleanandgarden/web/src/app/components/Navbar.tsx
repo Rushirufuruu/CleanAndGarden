@@ -4,7 +4,7 @@ import { useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Swal from "sweetalert2";
-import { Settings, UserPlus, BarChart3, ShieldCheck, User, Wrench, Images } from "lucide-react";
+import { Settings, UserPlus, BarChart3, ShieldCheck, User, Wrench, Images, Clock } from "lucide-react";
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -15,6 +15,8 @@ export default function Navbar() {
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [showAgendaMenu, setShowAgendaMenu] = useState(false);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  
 
   useEffect(() => {
     return () => {
@@ -323,8 +325,26 @@ export default function Navbar() {
                   </li>
                   <li>
                     <span className="flex items-center gap-2 px-4 py-2 text-gray-400 cursor-not-allowed">
-                      <BarChart3 size={18} /> (Más opciones pronto)
+                      <BarChart3 size={18} /> Reportes
                     </span>
+                  </li>
+                   <li>
+                    <Link
+                      href="/admin/reportes/finanzas"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Reporte Financiero
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/admin/reportes/operacional"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-[#f5e9d7] hover:text-[#2E5430] transition"
+                      onClick={() => setShowAdminMenu(false)}
+                    >
+                       Reporte Operacional
+                    </Link>
                   </li>
                 </ul>
               )}
@@ -333,17 +353,29 @@ export default function Navbar() {
 
           {/* Panel jardinero/técnico */}
           {isLoggedIn && (userRole === "jardinero" || userRole === "tecnico") && (
-            <li>
-              <Link
-                href="/agendamientos-jardinero"
-                className="flex items-center gap-2 bg-[#2E5430] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#1f3a23] transition-all shadow-sm"
-              >
-                <Wrench size={18} /> Mis Citas
-              </Link>
-            </li>
+            <>
+              <li>
+                <Link
+                  href="/agendamientos-jardinero"
+                  className="flex items-center gap-2 bg-[#2E5430] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#1f3a23] transition-all shadow-sm"
+                >
+                  <Wrench size={18} /> Mis Citas
+                </Link>
+              </li>
+
+              <li>
+                <Link
+                  href="/tecnico/horarios"
+                  className="flex items-center gap-2 bg-[#2E5430] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#1f3a23] transition-all shadow-sm"
+                >
+                  <Clock size={18} /> Mis Horarios
+                </Link>
+              </li>
+            </>
           )}
-        </ul>
-      </div>
+          </ul>
+          </div>
+
 
       {/* Botones sesión */}
       <div className="navbar-end hidden lg:flex space-x-3">

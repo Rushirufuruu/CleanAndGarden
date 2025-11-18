@@ -24,9 +24,12 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "dotenv": "^17.2.2",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.6",
+    "pdf-lib": "^1.17.1",
+    "pdfmake": "^0.2.20",
     "transbank-sdk": "^6.1.0",
     "ws": "^8.18.3"
   },

@@ -1609,6 +1609,7 @@ app.post("/logout", (_req, res) => {
   });
   res.json({ message: "Sesión cerrada correctamente" });
 });
+
 // =======================================
 // PERFIL (ruta protegida con token)
 // =======================================
@@ -1625,7 +1626,7 @@ app.get("/profile", authMiddleware, async (req, res) => {
         apellido: true,
         email: true,
         telefono: true,
-        rol: { select: { codigo: true } },
+        rol: { select: { codigo: true,disponibilidad_servicio: true } },
         direccion: {
           select: {
             id: true,
@@ -1652,6 +1653,95 @@ app.get("/profile", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Error en /profile:", err);
     res.status(500).json({ error: "Error al obtener perfil" });
+  }
+});
+
+// =======================================
+// ACTUALIZAR PERFIL (valida teléfono si jardinero)
+// =======================================
+app.put("/profile", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = BigInt((req as any).user.id);
+    const { nombre, apellido, telefono, direcciones } = req.body;
+
+    // Validar datos mínimos
+    if (!nombre || !apellido || !telefono) {
+      return res.status(400).json({ error: "Faltan datos obligatorios." });
+    }
+
+    // Actualizar datos básicos
+    await prisma.usuario.update({
+      where: { id: userId },
+      data: { nombre, apellido, telefono },
+    });
+
+    // Si hay direcciones en el body
+    if (Array.isArray(direcciones)) {
+      for (const dir of direcciones) {
+        if (dir._delete && dir.id) {
+          // 🗑️ Eliminar
+          await prisma.direccion.delete({
+            where: { id: BigInt(dir.id) },
+          });
+        } else if (dir._new) {
+          // ➕ Crear
+          const comuna = await prisma.comuna.findFirst({
+            where: { nombre: dir.comuna },
+            select: { id: true },
+          });
+
+          if (comuna) {
+            await prisma.direccion.create({
+              data: {
+                calle: dir.calle,
+                usuario_id: userId,
+                comuna_id: comuna.id,
+              },
+            });
+          }
+        } else if (dir.id) {
+          // ✏️ Actualizar dirección existente
+          const comuna = await prisma.comuna.findFirst({
+            where: { nombre: dir.comuna },
+            select: { id: true },
+          });
+
+          if (comuna) {
+            await prisma.direccion.update({
+              where: { id: BigInt(dir.id) },
+              data: {
+                calle: dir.calle,
+                comuna_id: comuna.id,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    const userUpdated = await prisma.usuario.findUnique({
+      where: { id: userId },
+      include: {
+        direccion: {
+          include: {
+            comuna: { include: { region: true } },
+          },
+        },
+      },
+    });
+
+    res.json(
+      toJSONSafe({
+        message: "Perfil actualizado correctamente.",
+        user: userUpdated,
+      })
+    );
+
+  } catch (err: any) {
+    console.error("❌ Error al actualizar perfil:", err);
+    res.status(500).json({
+      error: err.message || "Error interno al actualizar perfil.",
+    });
   }
 });
 
@@ -1892,95 +1982,6 @@ app.delete("/jardines/:id", authMiddleware, async (req, res) => {
   }
 });
 
-//--------------------------------------------------------------------
-// =======================================
-// ACTUALIZAR PERFIL (valida teléfono si jardinero)
-// =======================================
-app.put("/profile", authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = BigInt((req as any).user.id);
-    const { nombre, apellido, telefono, direcciones } = req.body;
-
-    // Validar datos mínimos
-    if (!nombre || !apellido || !telefono) {
-      return res.status(400).json({ error: "Faltan datos obligatorios." });
-    }
-
-    // Actualizar datos básicos
-    await prisma.usuario.update({
-      where: { id: userId },
-      data: { nombre, apellido, telefono },
-    });
-
-    // Si hay direcciones en el body
-    if (Array.isArray(direcciones)) {
-      for (const dir of direcciones) {
-        if (dir._delete && dir.id) {
-          // 🗑️ Eliminar
-          await prisma.direccion.delete({
-            where: { id: BigInt(dir.id) },
-          });
-        } else if (dir._new) {
-          // ➕ Crear
-          const comuna = await prisma.comuna.findFirst({
-            where: { nombre: dir.comuna },
-            select: { id: true },
-          });
-
-          if (comuna) {
-            await prisma.direccion.create({
-              data: {
-                calle: dir.calle,
-                usuario_id: userId,
-                comuna_id: comuna.id,
-              },
-            });
-          }
-        } else if (dir.id) {
-          // ✏️ Actualizar dirección existente
-          const comuna = await prisma.comuna.findFirst({
-            where: { nombre: dir.comuna },
-            select: { id: true },
-          });
-
-          if (comuna) {
-            await prisma.direccion.update({
-              where: { id: BigInt(dir.id) },
-              data: {
-                calle: dir.calle,
-                comuna_id: comuna.id,
-              },
-            });
-          }
-        }
-      }
-    }
-
-    const userUpdated = await prisma.usuario.findUnique({
-      where: { id: userId },
-      include: {
-        direccion: {
-          include: {
-            comuna: { include: { region: true } },
-          },
-        },
-      },
-    });
-
-    res.json(
-      toJSONSafe({
-        message: "Perfil actualizado correctamente.",
-        user: userUpdated,
-      })
-    );
-
-  } catch (err: any) {
-    console.error("❌ Error al actualizar perfil:", err);
-    res.status(500).json({
-      error: err.message || "Error interno al actualizar perfil.",
-    });
-  }
-});
 
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3006,101 +3007,115 @@ app.post("/admin/disponibilidad-mensual/generar", verifyAdmin, async (req, res) 
 
 
 // listar en calendario disponibilidad mensual
+// ===========================================
+// LISTAR DISPONIBILIDAD MENSUAL (ADMIN)
+// ===========================================
 app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
   try {
-    const { mes, usuarioId, desde, hasta } = req.query;
-    let rangoDesde: string;
-    let rangoHasta: string;
+    const mesParam = req.query.mes;
+    const usuarioId = req.query.usuarioId?.toString();
 
-    if (mes) {
-      const [y, m] = String(mes).split("-").map(Number);
-      const firstLocal = new Date(y, m - 1, 1);
-      const lastLocal = new Date(y, m, 0);
-      rangoDesde = toPgDateLocal(firstLocal);
-      rangoHasta = toPgDateLocal(lastLocal);
-    } else if (desde && hasta) {
-      rangoDesde = toPgDateLocal(desde as string);
-      rangoHasta = toPgDateLocal(hasta as string);
+    let inicio: Date;
+    let fin: Date;
+
+    // ==========================
+    // MANEJO DE MES: YYYY-MM
+    // ==========================
+    if (typeof mesParam === "string" && /^\d{4}-\d{2}$/.test(mesParam)) {
+      const [year, month] = mesParam.split("-").map(Number);
+      inicio = new Date(year, month - 1, 1, 0, 0, 0);
+      fin = new Date(year, month, 1, 0, 0, 0);
     } else {
+      // Mes actual por defecto
       const now = new Date();
-      const firstLocal = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastLocal = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      rangoDesde = toPgDateLocal(firstLocal);
-      rangoHasta = toPgDateLocal(lastLocal);
+      inicio = new Date(now.getFullYear(), now.getMonth(), 1);
+      fin = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     }
 
-    const filtro: any = {
-      fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) },
+    // ==========================
+    // 1) TRAER SLOTS DEL MES
+    // ==========================
+    const filtroSlots: any = {
+      fecha: { gte: inicio, lt: fin },
       activo: true,
     };
-    if (usuarioId) filtro.tecnico_id = BigInt(String(usuarioId));
 
-    // 🔹 Horarios activos
-    const disponibilidad = await prisma.disponibilidad_mensual.findMany({
-      where: filtro,
-      orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }],
-      include: { usuario: { select: { id: true, nombre: true, apellido: true, rol: true } } },
+    if (usuarioId) filtroSlots.tecnico_id = BigInt(usuarioId);
+
+    const slots = await prisma.disponibilidad_mensual.findMany({
+      where: filtroSlots,
+      orderBy: [
+        { fecha: "asc" },
+        { hora_inicio: "asc" }
+      ],
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true, rol: true } }
+      }
     });
 
-    console.log('ADMIN ENDPOINT - Filtro:', filtro);
-    console.log('ADMIN ENDPOINT - Slots encontrados:', disponibilidad.length);
-    disponibilidad.forEach(slot => {
-      console.log(`ADMIN - ${slot.fecha} ${slot.hora_inicio} - ${slot.activo}`);
+    console.log("ADMIN - Slots encontrados:", slots.length);
+
+    // ==========================
+    // 2) TRAER TODAS LAS CITAS DEL MES
+    // ==========================
+    const citasMes = await prisma.cita.findMany({
+      where: {
+        fecha_hora: { gte: inicio, lt: fin },
+        estado: { in: ["pendiente", "confirmada", "realizada"] },
+      },
+      include: {
+        jardin: true,
+        servicio: true,
+        usuario_cita_cliente_idTousuario: true,
+      },
+      orderBy: {
+        fecha_hora: "asc"
+      }
     });
 
-    // Para cada slot, obtener las citas asociadas con detalles
-    const disponibilidadConCitas = await Promise.all(
-      disponibilidad.map(async (slot) => {
-        const citaDate = new Date(slot.hora_inicio);
-        const citas = await prisma.cita.findMany({
-          where: {
-            tecnico_id: slot.tecnico_id,
-            fecha_hora: {
-              gte: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate()),
-              lt: new Date(citaDate.getFullYear(), citaDate.getMonth(), citaDate.getDate() + 1),
-            },
-            estado: { in: ['pendiente', 'confirmada', 'realizada'] }
-          },
-          include: {
-            jardin: { select: { id: true, nombre: true } },
-            servicio: { select: { id: true, nombre: true, precio_clp: true } },
-            usuario_cita_cliente_idTousuario: { select: { id: true, nombre: true, apellido: true } }
-          },
-          orderBy: { fecha_creacion: 'asc' }
-        });
+    // ==========================
+    // 3) INDEXAR CITAS POR FECHA/HORA EXACTA
+    // ==========================
+    const citasPorInicio: Record<string, any[]> = {};
 
-        console.log(`ADMIN - Slot ${slot.id} (${slot.fecha} ${slot.hora_inicio}) - Citas encontradas: ${citas.length}`);
-        citas.forEach(c => console.log(`  Cita ${c.id}: ${c.fecha_hora} - ${c.estado}`));
+    citasMes.forEach((cita) => {
+      const key = new Date(cita.fecha_hora).toISOString();
+      if (!citasPorInicio[key]) citasPorInicio[key] = [];
+      citasPorInicio[key].push(cita);
+    });
 
-        return {
-          ...slot,
-          citas: citas
-        };
-      })
-    );
+    // ==========================
+    // 4) RELACIONAR SLOTS + CITAS
+    // ==========================
+    const slotsConCitas = slots.map((slot) => {
+      const key = slot.hora_inicio.toISOString();
+      return {
+        ...slot,
+        citas: citasPorInicio[key] ?? [],
+      };
+    });
 
-    // 🔹 Excepciones dentro del mismo rango (globales o del técnico)
+    // ==========================
+    // 5) TRAER EXCEPCIONES DEL MES
+    // ==========================
     const excepcionFiltro: any = {
       OR: [
-        { fecha: { gte: new Date(rangoDesde), lte: new Date(rangoHasta) } },
-        { desde: { lte: new Date(rangoHasta) }, hasta: { gte: new Date(rangoDesde) } },
-      ],
+        {
+          fecha: { gte: inicio, lt: fin }
+        },
+        {
+          desde: { lte: fin },
+          hasta: { gte: inicio }
+        }
+      ]
     };
-    if (usuarioId) {
-      excepcionFiltro.OR.push({ tecnico_id: BigInt(String(usuarioId)) });
-    }
+
+    if (usuarioId) excepcionFiltro.tecnico_id = BigInt(usuarioId);
 
     const excepciones = await prisma.disponibilidad_excepcion.findMany({
       where: excepcionFiltro,
-      select: {
-        id: true,
-        tipo: true,
-        motivo: true,
-        descripcion: true,
-        fecha: true,
-        desde: true,
-        hasta: true,
-        tecnico_id: true,
+      orderBy: [{ fecha: "asc" }, { desde: "asc" }],
+      include: {
         usuario: {
           select: {
             id: true,
@@ -3110,19 +3125,22 @@ app.get("/admin/disponibilidad-mensual", verifyAdmin, async (req, res) => {
           },
         },
       },
-      orderBy: [{ fecha: "asc" }, { desde: "asc" }],
     });
 
-
-    res.json({
-      data: toJSONSafe(disponibilidadConCitas),
+    // ==========================
+    // RESPUESTA FINAL
+    // ==========================
+    return res.json({
+      data: toJSONSafe(slotsConCitas),
       excepciones: toJSONSafe(excepciones),
     });
+
   } catch (err) {
-    console.error("❌ Error al listar disponibilidad mensual:", err);
-    res.status(500).json({ error: "Error al listar disponibilidad mensual" });
+    console.error("❌ Error en /admin/disponibilidad-mensual:", err);
+    return res.status(500).json({ error: "Error interno al listar disponibilidad mensual" });
   }
 });
+
 
 
 // PUBLIC: listar disponibilidad mensual (solo slots activos) -> usado por frontend para reservar
@@ -5618,7 +5636,1661 @@ app.delete("/admin/comentarios/:id", verifyAdmin, async (req, res) => {
   }
 });
 
+// =======================================
+// 📊 R E P O R T E S   A D M I N
+// =======================================
 
+//REPORTE FINANZAS MENSUALES
+
+app.get("/admin/reportes/finanzas", verifyAdmin, async (req, res) => {
+  try {
+    let { mes } = req.query;
+
+    if (!mes || !/^\d{4}-\d{2}$/.test(String(mes))) {
+      return res.status(400).json({ error: "Debe enviar mes en formato YYYY-MM" });
+    }
+
+    const [year, month] = String(mes).split("-").map(Number);
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    // Obtener pagos Webpay del mes
+    const pagos = await prisma.pago.findMany({
+      where: {
+        metodo: "webpay",
+        creado_en: { gte: inicio, lt: fin }
+      },
+      include: {
+        cita: {
+          include: {
+            servicio: { select: { nombre: true } },
+            usuario_cita_cliente_idTousuario: {
+              select: { nombre: true, apellido: true, email: true }
+            }
+          }
+        }
+      },
+      orderBy: { creado_en: "asc" }
+    });
+
+    const aprobados = pagos.filter(p => p.estado === "aprobado");
+    const rechazados = pagos.filter(p => p.estado !== "aprobado");
+
+    const totalRecaudado = aprobados.reduce((sum, p) => sum + Number(p.monto_clp), 0);
+    const ticketPromedio = aprobados.length ? Math.round(totalRecaudado / aprobados.length) : 0;
+    const maximo = aprobados.length ? Math.max(...aprobados.map(p => Number(p.monto_clp))) : 0;
+    const minimo = aprobados.length ? Math.min(...aprobados.map(p => Number(p.monto_clp))) : 0;
+
+    // Agrupación por día
+    const diario: any = {};
+    for (const pago of aprobados) {
+      const fecha = pago.creado_en.toISOString().split("T")[0];
+      if (!diario[fecha]) diario[fecha] = { pagos: 0, monto: 0 };
+      diario[fecha].pagos++;
+      diario[fecha].monto += Number(pago.monto_clp);
+    }
+
+    res.json(
+      toJSONSafe({
+        mes,
+        resumen: {
+          totalPagos: pagos.length,
+          pagosAprobados: aprobados.length,
+          pagosRechazados: rechazados.length,
+          totalRecaudado,
+          ticketPromedio,
+          maximo,
+          minimo
+        },
+        porDia: diario,
+        detalle: pagos
+      })
+    );
+  } catch (e) {
+    console.error("❌ Error reporte financiero:", e);
+    res.status(500).json({ error: "Error interno generando reporte financiero" });
+  }
+});
+
+// EXPORTAR FINANZAS MENSUALES A PDF
+import { PDFDocument, StandardFonts, rgb, Color } from "pdf-lib";
+
+app.get("/admin/reportes/finanzas/pdf", verifyAdmin, async (req, res) => {
+  try {
+    const { mes } = req.query;
+    if (!mes) return res.status(400).json({ error: "Mes requerido (YYYY-MM)" });
+
+    const [year, month] = String(mes).split("-").map(Number);
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    // =============================
+    // 1. Obtener pagos
+    // =============================
+    const pagos = await prisma.pago.findMany({
+      where: { metodo: "webpay", creado_en: { gte: inicio, lt: fin } },
+      include: {
+        cita: {
+          include: {
+            servicio: true,
+            usuario_cita_cliente_idTousuario: true,
+          },
+        },
+      },
+      orderBy: { creado_en: "asc" },
+    });
+
+    // =============================
+    // 2. RESUMEN
+    // =============================
+    const totalPagos = pagos.length;
+    const pagosAprobados = pagos.filter((p) => p.estado === "aprobado").length;
+    const pagosRechazados = totalPagos - pagosAprobados;
+
+    const montosAprobados = pagos
+      .filter((p) => p.estado === "aprobado")
+      .map((p) => Number(p.monto_clp) || 0);
+
+    const totalRecaudado = montosAprobados.reduce((a, b) => a + b, 0);
+    const maximo = montosAprobados.length ? Math.max(...montosAprobados) : 0;
+    const minimo = montosAprobados.length ? Math.min(...montosAprobados) : 0;
+    const ticketPromedio =
+      pagosAprobados ? Math.round(totalRecaudado / pagosAprobados) : 0;
+
+    // =============================
+    // 3. POR DÍA (TIPADO CORRECTO)
+    // =============================
+    const porDia: Record<string, { pagos: number; monto: number }> = {};
+
+    pagos.forEach((p) => {
+      const fecha = new Date(p.creado_en)
+        .toLocaleDateString("es-CL")
+        .replace(/\//g, "-");
+
+      if (!porDia[fecha]) porDia[fecha] = { pagos: 0, monto: 0 };
+      porDia[fecha].pagos++;
+      porDia[fecha].monto += Number(p.monto_clp) || 0;
+    });
+
+    // =============================
+    // 4. Crear PDF
+    // =============================
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    // Tamaño A4: 595 x 842
+    let page = pdfDoc.addPage([595, 842]);
+    const margin = 40;
+    let y = 800;
+    let pageNumber = 1;
+    const lineHeight = 16;
+
+    const drawFooter = () => {
+      page.drawText(`Página ${pageNumber}`, {
+        x: 270,
+        y: 20,
+        size: 10,
+        font,
+        color: rgb(0.3, 0.3, 0.3),
+      });
+    };
+
+    const checkPageBreak = () => {
+      if (y < 80) {
+        drawFooter();
+        page = pdfDoc.addPage([595, 842]);
+        y = 800;
+        pageNumber++;
+      }
+    };
+
+    const drawText = (
+      txt: string,
+      size: number = 12,
+      color: Color = rgb(0, 0, 0),
+      fontStyle = font
+    ) => {
+      page.drawText(txt, {
+        x: margin,
+        y,
+        size,
+        font: fontStyle,
+        color,
+      });
+      y -= lineHeight;
+    };
+
+    // =============================
+    // 5. HEADER
+    // =============================
+    drawText("CLEAN & GARDEN", 20, rgb(0, 0.4, 0), bold);
+    drawText(`Reporte Financiero Mensual – ${mes}`, 14);
+
+    page.drawLine({
+      start: { x: margin, y: y - 6 },
+      end: { x: 555, y: y - 6 },
+      thickness: 1,
+      color: rgb(0, 0.4, 0),
+    });
+
+    y -= 30;
+
+    // =============================
+    // 6. TABLA RESUMEN
+    // =============================
+    drawText("Resumen del mes", 14, rgb(0, 0.4, 0), bold);
+    y -= 10;
+
+    const resumen = [
+      ["Pagos totales", totalPagos],
+      ["Pagos aprobados", pagosAprobados],
+      ["Pagos rechazados", pagosRechazados],
+      ["Total recaudado", `$${totalRecaudado.toLocaleString("es-CL")}`],
+      ["Monto promedio", `$${ticketPromedio.toLocaleString("es-CL")}`],
+      ["Monto máximo", `$${maximo.toLocaleString("es-CL")}`],
+      ["Monto mínimo", `$${minimo.toLocaleString("es-CL")}`],
+    ];
+
+    resumen.forEach(([label, val]) => {
+      checkPageBreak();
+      drawText(`${label}: ${val}`);
+    });
+
+    y -= 20;
+
+    // =============================
+    // 7. TABLA POR DÍA
+    // =============================
+    drawText("Recaudación por día", 14, rgb(0, 0.4, 0), bold);
+    y -= 10;
+
+    // Header tabla por día
+    page.drawRectangle({
+      x: margin,
+      y: y - 2,
+      width: 515,
+      height: 18,
+      color: rgb(0, 0.5, 0),
+    });
+
+    page.drawText("Fecha", { x: margin + 5, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Pagos", { x: margin + 200, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Monto", { x: margin + 300, y, size: 11, color: rgb(1, 1, 1), font: bold });
+
+    y -= 22;
+
+    const diasOrdenados = Object.keys(porDia).sort();
+
+    diasOrdenados.forEach((fecha) => {
+      const info = porDia[fecha];
+      checkPageBreak();
+
+      page.drawText(fecha, { x: margin + 5, y, size: 10 });
+      page.drawText(String(info.pagos), { x: margin + 200, y, size: 10 });
+      page.drawText(`$${info.monto.toLocaleString("es-CL")}`, {
+        x: margin + 300,
+        y,
+        size: 10,
+      });
+
+      y -= 18;
+    });
+
+    y -= 20;
+
+    // =============================
+    // 8. DETALLE DE PAGOS (TABLA PRO)
+    // =============================
+    drawText("Detalle de pagos del mes", 14, rgb(0, 0.4, 0), bold);
+    y -= 10;
+
+    const th = {
+      fecha: margin + 5,
+      cliente: margin + 120,
+      servicio: margin + 250,
+      estado: margin + 360,
+      monto: margin + 440,
+    };
+
+    // Encabezado
+    page.drawRectangle({
+      x: margin,
+      y: y - 2,
+      width: 515,
+      height: 18,
+      color: rgb(0, 0.5, 0),
+    });
+
+    page.drawText("Fecha", { x: th.fecha, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Cliente", { x: th.cliente, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Servicio", { x: th.servicio, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Estado", { x: th.estado, y, size: 11, color: rgb(1, 1, 1), font: bold });
+    page.drawText("Monto", { x: th.monto, y, size: 11, color: rgb(1, 1, 1), font: bold });
+
+    y -= 22;
+
+    pagos.forEach((p) => {
+      checkPageBreak();
+
+      const fecha = new Date(p.creado_en)
+        .toLocaleString("es-CL", { timeZone: "America/Santiago" });
+
+      const cliente = `${p.cita?.usuario_cita_cliente_idTousuario?.nombre ?? ""} ${p.cita?.usuario_cita_cliente_idTousuario?.apellido ?? ""}`;
+      const servicio = p.cita?.servicio?.nombre ?? "-";
+      const monto = `$${Number(p.monto_clp).toLocaleString("es-CL")}`;
+
+      page.drawText(fecha, { x: th.fecha, y, size: 10 });
+      page.drawText(cliente, { x: th.cliente, y, size: 10 });
+      page.drawText(servicio, { x: th.servicio, y, size: 10 });
+      page.drawText(p.estado, { x: th.estado, y, size: 10 });
+      page.drawText(monto, { x: th.monto, y, size: 10 });
+
+      y -= 18;
+    });
+
+    // Footer final
+    drawFooter();
+
+    // =============================
+    // 9. Enviar PDF
+    // =============================
+    const pdfBytes = await pdfDoc.save();
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=reporte-financiero-${mes}.pdf`
+    );
+
+    res.send(Buffer.from(pdfBytes));
+  } catch (err) {
+    console.error("❌ Error exportando PDF:", err);
+    res.status(500).json({ error: "Error exportando PDF" });
+  }
+});
+
+// EXPORTAR FINANZAS MENSUALES A EXCEL
+
+import ExcelJS from "exceljs";
+
+app.get("/admin/reportes/finanzas/excel", verifyAdmin, async (req, res) => {
+  try {
+    const { mes } = req.query;
+    if (!mes) return res.status(400).json({ error: "Mes requerido (YYYY-MM)" });
+
+    const [year, month] = String(mes).split("-").map(Number);
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    const pagos = await prisma.pago.findMany({
+      where: { metodo: "webpay", creado_en: { gte: inicio, lt: fin } },
+      include: {
+        cita: {
+          include: {
+            servicio: true,
+            usuario_cita_cliente_idTousuario: true,
+          },
+        },
+      },
+      orderBy: { creado_en: "asc" },
+    });
+
+    // ======================
+    // CALCULAR RESUMEN
+    // ======================
+    const totalPagos = pagos.length;
+    const pagosAprobados = pagos.filter(p => p.estado === "aprobado").length;
+    const pagosRechazados = totalPagos - pagosAprobados;
+
+    const montosAprobados = pagos
+      .filter(p => p.estado === "aprobado")
+      .map(p => Number(p.monto_clp));
+
+    const totalRecaudado = montosAprobados.reduce((a, b) => a + b, 0);
+    const maximo = montosAprobados.length ? Math.max(...montosAprobados) : 0;
+    const minimo = montosAprobados.length ? Math.min(...montosAprobados) : 0;
+    const ticketPromedio = pagosAprobados ? Math.round(totalRecaudado / pagosAprobados) : 0;
+
+    // ======================
+    // AGRUPAR POR DÍA
+    // ======================
+    const porDia: Record<string, { pagos: number; monto: number }> = {};
+
+    pagos.forEach(p => {
+      const fechaKey = new Date(p.creado_en)
+        .toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" })
+        .replace(/\//g, "-");
+
+      if (!porDia[fechaKey]) {
+        porDia[fechaKey] = { pagos: 0, monto: 0 };
+      }
+      porDia[fechaKey].pagos++;
+      porDia[fechaKey].monto += Number(p.monto_clp);
+    });
+
+    // ======================
+    // CREAR EXCEL
+    // ======================
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Clean & Garden";
+    wb.created = new Date();
+
+    // 🎨 ESTILOS Clean & Garden (compatibles 100% con TS)
+    const headerStyle = {
+      font: { bold: true, color: { argb: "FFFFFFFF" } },
+      fill: {
+        type: "pattern" as const,
+        pattern: "solid" as const,
+        fgColor: { argb: "FF1A6D27" }, // verde oscuro
+      },
+      alignment: { horizontal: "center" as const },
+      border: {
+        top: { style: "thin" as const },
+        left: { style: "thin" as const },
+        bottom: { style: "thin" as const },
+        right: { style: "thin" as const },
+      },
+    };
+
+    const border = {
+      top: { style: "thin" as const },
+      left: { style: "thin" as const },
+      bottom: { style: "thin" as const },
+      right: { style: "thin" as const },
+    };
+
+    // -----------------------------------------
+    // HOJA 1 — RESUMEN
+    // -----------------------------------------
+    const resumenSheet = wb.addWorksheet("Resumen");
+
+    resumenSheet.columns = [
+      { header: "Métrica", key: "metrica", width: 30 },
+      { header: "Valor", key: "valor", width: 25 },
+    ];
+
+    resumenSheet.addRows([
+      ["Pagos Totales", totalPagos],
+      ["Pagos Aprobados", pagosAprobados],
+      ["Pagos Rechazados", pagosRechazados],
+      ["Total Recaudado", `$${totalRecaudado.toLocaleString("es-CL")}`],
+      ["Ticket Promedio", `$${ticketPromedio.toLocaleString("es-CL")}`],
+      ["Monto Máximo", `$${maximo.toLocaleString("es-CL")}`],
+      ["Monto Mínimo", `$${minimo.toLocaleString("es-CL")}`],
+    ]);
+
+    resumenSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
+
+    resumenSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => c.border = { ...border } as any);
+    });
+
+    // -----------------------------------------
+    // HOJA 2 — RECAUDACIÓN POR DÍA
+    // -----------------------------------------
+    const diaSheet = wb.addWorksheet("Recaudación por día");
+
+    diaSheet.columns = [
+      { header: "Fecha", key: "fecha", width: 20 },
+      { header: "Pagos", key: "pagos", width: 12 },
+      { header: "Monto", key: "monto", width: 18 },
+    ];
+
+    Object.keys(porDia).forEach(fecha => {
+      diaSheet.addRow({
+        fecha,
+        pagos: porDia[fecha].pagos,
+        monto: porDia[fecha].monto,
+      });
+    });
+
+    diaSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
+    diaSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => c.border = { ...border } as any);
+    });
+
+    // -----------------------------------------
+    // HOJA 3 — DETALLE DE PAGOS
+    // -----------------------------------------
+    const detalleSheet = wb.addWorksheet("Detalle de pagos");
+
+    detalleSheet.columns = [
+      { header: "Fecha", key: "fecha", width: 25 },
+      { header: "Cliente", key: "cliente", width: 30 },
+      { header: "Servicio", key: "servicio", width: 25 },
+      { header: "Estado", key: "estado", width: 15 },
+      { header: "Monto", key: "monto", width: 15 },
+    ];
+
+    pagos.forEach(p => {
+      detalleSheet.addRow({
+        fecha: new Date(p.creado_en).toLocaleString("es-CL"),
+        cliente: `${p.cita?.usuario_cita_cliente_idTousuario?.nombre ?? ""} ${p.cita?.usuario_cita_cliente_idTousuario?.apellido ?? ""}`,
+        servicio: p.cita?.servicio?.nombre ?? "-",
+        estado: p.estado,
+        monto: Number(p.monto_clp),
+      });
+    });
+
+    detalleSheet.getRow(1).eachCell(c => c.style = { ...headerStyle } as any);
+    detalleSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => c.border = { ...border } as any);
+    });
+
+    // -----------------------------------------
+    // DESCARGA
+    // -----------------------------------------
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=reporte-finanzas-${mes}.xlsx`
+    );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    await wb.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("❌ Error exportando Excel finanzas:", err);
+    res.status(500).json({ error: "Error exportando Excel" });
+  }
+});
+
+
+
+//====================================================================================================
+
+// ================================
+// 📋 REPORTE OPERACIONAL DE CITAS
+// ================================
+type EstadoCounts = {
+  total: number;
+  pendientes: number;
+  confirmadas: number;
+  realizadas: number;
+  canceladas: number;
+};
+
+type PorDiaStats = {
+  total: number;
+  pendientes: number;
+  confirmadas: number;
+  realizadas: number;
+  canceladas: number;
+};
+
+type PorTecnicoStats = EstadoCounts & {
+  tecnicoId: number | null;
+};
+
+type PorServicioStats = EstadoCounts & {
+  servicioId: number | null;
+  nombreServicio: string;
+};
+
+app.get("/admin/reportes/operacional", verifyAdmin, async (req, res) => {
+  try {
+    const { mes } = req.query;
+    if (!mes) {
+      return res.status(400).json({ error: "Mes requerido (formato YYYY-MM)" });
+    }
+
+    const [year, month] = String(mes).split("-").map(Number);
+    if (!year || !month) {
+      return res.status(400).json({ error: "Formato de mes inválido" });
+    }
+
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    // ================================
+    // 1) OBTENER CITAS DEL MES
+    // ================================
+    const citas = await prisma.cita.findMany({
+      where: {
+        fecha_hora: {
+          gte: inicio,
+          lt: fin,
+        },
+      },
+      include: {
+        servicio: {
+          select: { id: true, nombre: true },
+        },
+        usuario_cita_cliente_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            email: true,
+          },
+        },
+        usuario_cita_tecnico_idTousuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+          },
+        },
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    if (!citas.length) {
+      return res.json(
+        toJSONSafe({
+          resumen: {
+            totalCitas: 0,
+            pendientes: 0,
+            confirmadas: 0,
+            realizadas: 0,
+            canceladas: 0,
+            tasaRealizacion: 0,
+            tasaCancelacion: 0,
+          },
+          porDia: [],
+          porTecnico: [],
+          porServicio: [],
+          detalle: [],
+        })
+      );
+    }
+
+    // ================================
+    // 2) MAPAS ACUMULADORES
+    // ================================
+    const resumen: EstadoCounts = {
+      total: 0,
+      pendientes: 0,
+      confirmadas: 0,
+      realizadas: 0,
+      canceladas: 0,
+    };
+
+    const porDia: Record<string, PorDiaStats> = {};
+    const porTecnico: Record<string, PorTecnicoStats> = {};
+    const porServicio: Record<string, PorServicioStats> = {};
+
+    const bumpEstado = (acc: EstadoCounts, estado: string) => {
+      acc.total++;
+      const e = estado.toLowerCase();
+      if (e === "pendiente") acc.pendientes++;
+      else if (e === "confirmada") acc.confirmadas++;
+      else if (e === "realizada") acc.realizadas++;
+      else if (e === "cancelada") acc.canceladas++;
+    };
+
+    // ================================
+    // 3) RECORRER CITAS Y ACUMULAR
+    // ================================
+    for (const c of citas) {
+      bumpEstado(resumen, c.estado);
+
+      // POR DÍA
+      const fechaKey = new Date(c.fecha_hora)
+        .toLocaleDateString("es-CL", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          timeZone: "America/Santiago",
+        })
+        .replace(/\//g, "-");
+
+      if (!porDia[fechaKey]) {
+        porDia[fechaKey] = {
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bumpEstado(porDia[fechaKey], c.estado);
+
+      // POR TÉCNICO
+      const tecnico = c.usuario_cita_tecnico_idTousuario;
+      const keyTec = tecnico ? String(Number(tecnico.id)) : "sin_tecnico";
+
+      if (!porTecnico[keyTec]) {
+        porTecnico[keyTec] = {
+          tecnicoId: tecnico ? Number(tecnico.id) : null,
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bumpEstado(porTecnico[keyTec], c.estado);
+
+      // POR SERVICIO
+      const servicio = c.servicio;
+      const keySrv = servicio ? String(Number(servicio.id)) : "sin_servicio";
+
+      if (!porServicio[keySrv]) {
+        porServicio[keySrv] = {
+          servicioId: servicio ? Number(servicio.id) : null,
+          nombreServicio: servicio?.nombre ?? "Sin servicio",
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bumpEstado(porServicio[keySrv], c.estado);
+    }
+
+    // ================================
+    // 4) ARMAR RESPUESTAS
+    // ================================
+    const totalCitas = resumen.total;
+    const tasaRealizacion =
+      totalCitas > 0 ? +(resumen.realizadas / totalCitas).toFixed(2) : 0;
+    const tasaCancelacion =
+      totalCitas > 0 ? +(resumen.canceladas / totalCitas).toFixed(2) : 0;
+
+    const porDiaOrdenado = Object.keys(porDia)
+      .sort((a, b) => {
+        const [da, ma, aa] = a.split("-").map(Number);
+        const [db, mb, ab] = b.split("-").map(Number);
+        return (
+          new Date(aa, ma - 1, da).getTime() -
+          new Date(ab, mb - 1, db).getTime()
+        );
+      })
+      .map((fecha) => ({
+        fecha,
+        ...porDia[fecha],
+      }));
+
+    // ================================
+    // POR TÉCNICO
+    // ================================
+    const porTecnicoList = Object.values(porTecnico).map((t) => {
+      const tecnico = citas.find((c) =>
+        c.usuario_cita_tecnico_idTousuario &&
+        Number(c.usuario_cita_tecnico_idTousuario.id) === t.tecnicoId
+      )?.usuario_cita_tecnico_idTousuario;
+
+      return {
+        tecnicoId: t.tecnicoId,
+        nombre: tecnico?.nombre ?? "Sin técnico",
+        apellido: tecnico?.apellido ?? "",
+        totalCitas: t.total,
+        pendientes: t.pendientes,
+        confirmadas: t.confirmadas,
+        realizadas: t.realizadas,
+        canceladas: t.canceladas,
+      };
+    });
+
+    // ================================
+    // POR SERVICIO (CORREGIDO)
+    // ================================
+    const porServicioList = Object.values(porServicio).map((s) => ({
+      servicioId: s.servicioId,
+      nombreServicio: s.nombreServicio,
+      totalCitas: s.total, // <-- CAMBIO CLAVE
+      pendientes: s.pendientes,
+      confirmadas: s.confirmadas,
+      realizadas: s.realizadas,
+      canceladas: s.canceladas,
+    }));
+
+    // ================================
+    // DETALLE
+    // ================================
+    const detalle = citas.map((c) => ({
+      id: Number(c.id),
+      fecha_hora: c.fecha_hora,
+      estado: c.estado,
+      cliente: c.usuario_cita_cliente_idTousuario
+        ? {
+            id: Number(c.usuario_cita_cliente_idTousuario.id),
+            nombre: c.usuario_cita_cliente_idTousuario.nombre,
+            apellido: c.usuario_cita_cliente_idTousuario.apellido,
+            email: c.usuario_cita_cliente_idTousuario.email,
+          }
+        : null,
+      servicio: c.servicio
+        ? {
+            id: Number(c.servicio.id),
+            nombre: c.servicio.nombre,
+          }
+        : null,
+      tecnico: c.usuario_cita_tecnico_idTousuario
+        ? {
+            id: Number(c.usuario_cita_tecnico_idTousuario.id),
+            nombre: c.usuario_cita_tecnico_idTousuario.nombre,
+            apellido: c.usuario_cita_tecnico_idTousuario.apellido,
+          }
+        : null,
+    }));
+
+    // ================================
+    // 6) RESPUESTA FINAL
+    // ================================
+    return res.json(
+      toJSONSafe({
+        resumen: {
+          totalCitas,
+          pendientes: resumen.pendientes,
+          confirmadas: resumen.confirmadas,
+          realizadas: resumen.realizadas,
+          canceladas: resumen.canceladas,
+          tasaRealizacion,
+          tasaCancelacion,
+        },
+        porDia: porDiaOrdenado,
+        porTecnico: porTecnicoList,
+        porServicio: porServicioList,
+        detalle,
+      })
+    );
+  } catch (err: any) {
+    console.error("❌ Error en /admin/reportes/operacional:", err);
+    return res
+      .status(500)
+      .json({ error: err?.message ?? "Error generando reporte operacional" });
+  }
+});
+
+
+// ================================================
+//  EXPORTAR REPORTE OPERACIONAL DE CITAS A PDF
+// ================================================
+
+app.get("/admin/reportes/operacional/pdf", verifyAdmin, async (req, res) => {
+  try {
+    const { mes } = req.query;
+    if (!mes) {
+      return res.status(400).json({ error: "Mes requerido (YYYY-MM)" });
+    }
+
+    const [year, month] = String(mes).split("-").map(Number);
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    // ========================================
+    // 1) Obtener Citas del mes
+    // ========================================
+    const citas = await prisma.cita.findMany({
+      where: { fecha_hora: { gte: inicio, lt: fin } },
+      include: {
+        servicio: true,
+        usuario_cita_cliente_idTousuario: true,
+        usuario_cita_tecnico_idTousuario: true,
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    // ========================================
+    // 2) Tipos internos (NO se duplican)
+    // ========================================
+    type EstadoCounts = {
+      total: number;
+      pendientes: number;
+      confirmadas: number;
+      realizadas: number;
+      canceladas: number;
+    };
+
+    const resumen: EstadoCounts = {
+      total: 0,
+      pendientes: 0,
+      confirmadas: 0,
+      realizadas: 0,
+      canceladas: 0,
+    };
+
+    const porDia: Record<string, EstadoCounts> = {};
+
+    const porTecnico: Record<
+      string,
+      EstadoCounts & { tecnicoId: number | null; nombre: string; apellido: string }
+    > = {};
+
+    const porServicio: Record<
+      string,
+      EstadoCounts & { servicioId: number | null; nombreServicio: string }
+    > = {};
+
+    const bump = (obj: EstadoCounts, estado: string): void => {
+      obj.total++;
+      const e = estado.toLowerCase();
+      if (e === "pendiente") obj.pendientes++;
+      else if (e === "confirmada") obj.confirmadas++;
+      else if (e === "realizada") obj.realizadas++;
+      else if (e === "cancelada") obj.canceladas++;
+    };
+
+    // ========================================
+    // 3) Acumular Datos (si no hay citas → todo queda en 0)
+    // ========================================
+    for (const c of citas) {
+      bump(resumen, c.estado);
+
+      // POR DÍA
+      const f = new Date(c.fecha_hora)
+        .toLocaleDateString("es-CL")
+        .replace(/\//g, "-");
+
+      if (!porDia[f]) {
+        porDia[f] = { total: 0, pendientes: 0, confirmadas: 0, realizadas: 0, canceladas: 0 };
+      }
+      bump(porDia[f], c.estado);
+
+      // POR TÉCNICO
+      const tec = c.usuario_cita_tecnico_idTousuario;
+      const keyTec = tec ? String(tec.id) : "sin";
+
+      if (!porTecnico[keyTec]) {
+        porTecnico[keyTec] = {
+          tecnicoId: tec ? Number(tec.id) : null,
+          nombre: tec?.nombre ?? "Sin técnico",
+          apellido: tec?.apellido ?? "",
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bump(porTecnico[keyTec], c.estado);
+
+      // POR SERVICIO
+      const srv = c.servicio;
+      const keySrv = srv ? String(srv.id) : "sin_servicio";
+
+      if (!porServicio[keySrv]) {
+        porServicio[keySrv] = {
+          servicioId: srv ? Number(srv.id) : null,
+          nombreServicio: srv?.nombre ?? "Sin servicio",
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bump(porServicio[keySrv], c.estado);
+    }
+
+    // ========================================
+    // 4) Convertir a listas ordenadas
+    // ========================================
+    const porDiaList = Object.keys(porDia)
+      .sort((a, b) => {
+        const [da, ma, aa] = a.split("-").map(Number);
+        const [db, mb, ab] = b.split("-").map(Number);
+        return new Date(aa, ma - 1, da).getTime() - new Date(ab, mb - 1, db).getTime();
+      })
+      .map((f) => ({ fecha: f, ...porDia[f] }));
+
+    const porTecnicoList = Object.values(porTecnico);
+
+    const porServicioList = Object.values(porServicio);
+
+    const detalle = citas.map((c) => ({
+      fecha: new Date(c.fecha_hora).toLocaleString("es-CL", {
+        timeZone: "America/Santiago",
+      }),
+      cliente: c.usuario_cita_cliente_idTousuario
+        ? `${c.usuario_cita_cliente_idTousuario.nombre} ${c.usuario_cita_cliente_idTousuario.apellido}`
+        : "-",
+      servicio: c.servicio?.nombre ?? "-",
+      estado: c.estado,
+      tecnico: c.usuario_cita_tecnico_idTousuario
+        ? `${c.usuario_cita_tecnico_idTousuario.nombre} ${c.usuario_cita_tecnico_idTousuario.apellido}`
+        : "Sin técnico",
+    }));
+
+    // ========================================
+    // 5) Crear PDF
+    // ========================================
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    let page = pdfDoc.addPage([595, 842]);
+    let y = 800;
+    const margin = 40;
+    const line = 16;
+
+    const verde = rgb(0, 0.4, 0);
+
+    const drawText = (txt: string, size = 12, color = rgb(0, 0, 0), f = font) => {
+      page.drawText(txt, { x: margin, y, size, font: f, color });
+      y -= line;
+    };
+
+    const checkPageBreak = (needed: number = 40) => {
+      if (y - needed < 40) {
+        page = pdfDoc.addPage([595, 842]);
+        y = 800;
+      }
+    };
+
+    // ========================================
+    // HEADER
+    // ========================================
+    drawText("CLEAN & GARDEN", 20, verde, bold);
+    drawText(`Reporte Operacional – ${mes}`, 14, rgb(0.2, 0.2, 0.2));
+
+    page.drawLine({
+      start: { x: margin, y: y - 6 },
+      end: { x: 555, y: y - 6 },
+      thickness: 1,
+      color: verde,
+    });
+
+    y -= 26;
+
+    // ========================================
+    // RESUMEN
+    // ========================================
+    drawText("Resumen del mes", 14, verde, bold);
+    y -= 8;
+
+    drawText(`Citas totales: ${resumen.total}`);
+    drawText(`Realizadas: ${resumen.realizadas}`);
+    drawText(`Confirmadas: ${resumen.confirmadas}`);
+    drawText(`Pendientes: ${resumen.pendientes}`);
+    drawText(`Canceladas: ${resumen.canceladas}`);
+
+    y -= 20;
+
+    // ========================================
+    // TABLA POR DÍA
+    // ========================================
+    drawText("Citas por día", 14, verde, bold);
+    y -= 10;
+
+    page.drawRectangle({ x: margin, y: y - 2, width: 515, height: 18, color: verde });
+
+    const thDia = {
+      fecha: margin + 5,
+      total: margin + 120,
+      realizadas: margin + 180,
+      confirmadas: margin + 260,
+      canceladas: margin + 350,
+      pendientes: margin + 440,
+    };
+
+    const writeHeader = (text: string, x: number) =>
+      page.drawText(text, { x, y, size: 11, font: bold, color: rgb(1, 1, 1) });
+
+    writeHeader("Fecha", thDia.fecha);
+    writeHeader("Total", thDia.total);
+    writeHeader("Realizadas", thDia.realizadas);
+    writeHeader("Confirmadas", thDia.confirmadas);
+    writeHeader("Canceladas", thDia.canceladas);
+    writeHeader("Pendientes", thDia.pendientes);
+
+    y -= 22;
+
+    porDiaList.forEach((d) => {
+      checkPageBreak(22);
+      page.drawText(d.fecha, { x: thDia.fecha, y, size: 10 });
+      page.drawText(String(d.total), { x: thDia.total, y, size: 10 });
+      page.drawText(String(d.realizadas), { x: thDia.realizadas, y, size: 10 });
+      page.drawText(String(d.confirmadas), { x: thDia.confirmadas, y, size: 10 });
+      page.drawText(String(d.canceladas), { x: thDia.canceladas, y, size: 10 });
+      page.drawText(String(d.pendientes), { x: thDia.pendientes, y, size: 10 });
+      y -= 18;
+    });
+
+    y -= 26;
+
+    // ========================================
+    // TABLA POR TÉCNICO
+    // ========================================
+    drawText("Citas por técnico", 14, verde, bold);
+    y -= 10;
+
+    page.drawRectangle({ x: margin, y: y - 2, width: 515, height: 18, color: verde });
+
+    const thTec = {
+      nombre: margin + 5,
+      total: margin + 230,
+      realizadas: margin + 290,
+      confirmadas: margin + 360,
+      canceladas: margin + 440,
+      pendientes: margin + 515,
+    };
+
+    writeHeader("Técnico", thTec.nombre);
+    writeHeader("Total", thTec.total);
+    writeHeader("Realizadas", thTec.realizadas);
+    writeHeader("Confirmadas", thTec.confirmadas);
+    writeHeader("Canceladas", thTec.canceladas);
+    writeHeader("Pendientes", thTec.pendientes);
+
+    y -= 22;
+
+    porTecnicoList.forEach((t) => {
+      checkPageBreak(22);
+      page.drawText(`${t.nombre} ${t.apellido}`, { x: thTec.nombre, y, size: 10 });
+      page.drawText(String(t.total), { x: thTec.total, y, size: 10 });
+      page.drawText(String(t.realizadas), { x: thTec.realizadas, y, size: 10 });
+      page.drawText(String(t.confirmadas), { x: thTec.confirmadas, y, size: 10 });
+      page.drawText(String(t.canceladas), { x: thTec.canceladas, y, size: 10 });
+      page.drawText(String(t.pendientes), { x: thTec.pendientes, y, size: 10 });
+      y -= 18;
+    });
+
+    y -= 26;
+
+    // ========================================
+    // TABLA POR SERVICIO
+    // ========================================
+    drawText("Citas por servicio", 14, verde, bold);
+    y -= 10;
+
+    page.drawRectangle({ x: margin, y: y - 2, width: 515, height: 18, color: verde });
+
+    const thSrv = {
+      nombre: margin + 5,
+      total: margin + 230,
+      realizadas: margin + 290,
+      confirmadas: margin + 360,
+      canceladas: margin + 440,
+      pendientes: margin + 515,
+    };
+
+    writeHeader("Servicio", thSrv.nombre);
+    writeHeader("Total", thSrv.total);
+    writeHeader("Realizadas", thSrv.realizadas);
+    writeHeader("Confirmadas", thSrv.confirmadas);
+    writeHeader("Canceladas", thSrv.canceladas);
+    writeHeader("Pendientes", thSrv.pendientes);
+
+    y -= 22;
+
+    porServicioList.forEach((s) => {
+      checkPageBreak(22);
+      page.drawText(s.nombreServicio, { x: thSrv.nombre, y, size: 10 });
+      page.drawText(String(s.total), { x: thSrv.total, y, size: 10 });
+      page.drawText(String(s.realizadas), { x: thSrv.realizadas, y, size: 10 });
+      page.drawText(String(s.confirmadas), { x: thSrv.confirmadas, y, size: 10 });
+      page.drawText(String(s.canceladas), { x: thSrv.canceladas, y, size: 10 });
+      page.drawText(String(s.pendientes), { x: thSrv.pendientes, y, size: 10 });
+      y -= 18;
+    });
+
+    y -= 26;
+
+    // ========================================
+    // DETALLE DE CITAS (FIX DE SALTO DE PÁGINA)
+    // ========================================
+    drawText("Detalle de citas del mes", 14, verde, bold);
+    y -= 10;
+
+    page.drawRectangle({ x: margin, y: y - 2, width: 515, height: 18, color: verde });
+
+    const thDet = {
+      fecha: margin + 5,
+      cliente: margin + 130,
+      servicio: margin + 260,
+      estado: margin + 360,
+      tecnico: margin + 440,
+    };
+
+    writeHeader("Fecha/Hora", thDet.fecha);
+    writeHeader("Cliente", thDet.cliente);
+    writeHeader("Servicio", thDet.servicio);
+    writeHeader("Estado", thDet.estado);
+    writeHeader("Técnico", thDet.tecnico);
+
+    y -= 22;
+
+    detalle.forEach((d) => {
+      checkPageBreak(30);
+      page.drawText(d.fecha, { x: thDet.fecha, y, size: 9 });
+      page.drawText(d.cliente, { x: thDet.cliente, y, size: 9 });
+      page.drawText(d.servicio, { x: thDet.servicio, y, size: 9 });
+      page.drawText(d.estado, { x: thDet.estado, y, size: 9 });
+      page.drawText(d.tecnico, { x: thDet.tecnico, y, size: 9 });
+      y -= 18;
+    });
+
+    // ========================================
+    // ENTREGAR PDF
+    // ========================================
+    const pdfBytes = await pdfDoc.save();
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=reporte-operacional-${mes}.pdf`
+    );
+
+    res.send(Buffer.from(pdfBytes));
+  } catch (err) {
+    console.error("❌ Error exportando PDF operacional:", err);
+    res.status(500).json({ error: "Error exportando PDF operacional" });
+  }
+});
+
+
+// ================================================
+// 📊 EXPORTAR REPORTE OPERACIONAL A EXCEL (XLSX)
+// ================================================
+
+app.get("/admin/reportes/operacional/excel", verifyAdmin, async (req, res) => {
+  try {
+    const { mes } = req.query;
+    if (!mes) return res.status(400).json({ error: "Mes requerido (YYYY-MM)" });
+
+    const [year, month] = String(mes).split("-").map(Number);
+    const inicio = new Date(year, month - 1, 1);
+    const fin = new Date(year, month, 1);
+
+    // Obtener datos
+    const citas = await prisma.cita.findMany({
+      where: {
+        fecha_hora: { gte: inicio, lt: fin },
+      },
+      include: {
+        servicio: true,
+        usuario_cita_cliente_idTousuario: true,
+        usuario_cita_tecnico_idTousuario: true,
+      },
+      orderBy: { fecha_hora: "asc" },
+    });
+
+    // ======================
+    // CONSTRUCTORES DE TABLAS
+    // ======================
+
+    const resumen = {
+      total: citas.length,
+      pendientes: citas.filter(c => c.estado === "pendiente").length,
+      confirmadas: citas.filter(c => c.estado === "confirmada").length,
+      realizadas: citas.filter(c => c.estado === "realizada").length,
+      canceladas: citas.filter(c => c.estado === "cancelada").length,
+    };
+
+    const porDia: Record<string, any> = {};
+    const porTecnico: Record<string, any> = {};
+    const porServicio: Record<string, any> = {};
+
+    const bump = (obj: any, estado: string) => {
+      obj.total++;
+      const e = estado.toLowerCase();
+      if (e === "pendiente") obj.pendientes++;
+      else if (e === "confirmada") obj.confirmadas++;
+      else if (e === "realizada") obj.realizadas++;
+      else if (e === "cancelada") obj.canceladas++;
+    };
+
+    // Agrupar datos
+    citas.forEach(c => {
+      // Día
+      const fechaKey = new Date(c.fecha_hora)
+        .toLocaleDateString("es-CL", { timeZone: "America/Santiago" })
+        .replace(/\//g, "-");
+
+      if (!porDia[fechaKey]) {
+        porDia[fechaKey] = {
+          total: 0, pendientes: 0, confirmadas: 0, realizadas: 0, canceladas: 0,
+        };
+      }
+      bump(porDia[fechaKey], c.estado);
+
+      // Técnico
+      const tec = c.usuario_cita_tecnico_idTousuario;
+      const tecKey = tec ? String(tec.id) : "sin_tecnico";
+
+      if (!porTecnico[tecKey]) {
+        porTecnico[tecKey] = {
+          tecnicoId: tec ? Number(tec.id) : null,
+          nombre: tec?.nombre ?? "Sin técnico",
+          apellido: tec?.apellido ?? "",
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bump(porTecnico[tecKey], c.estado);
+
+      // Servicio
+      const srv = c.servicio;
+      const srvKey = srv ? String(srv.id) : "sin_servicio";
+
+      if (!porServicio[srvKey]) {
+        porServicio[srvKey] = {
+          servicioId: srv ? Number(srv.id) : null,
+          nombreServicio: srv?.nombre ?? "Sin servicio",
+          total: 0,
+          pendientes: 0,
+          confirmadas: 0,
+          realizadas: 0,
+          canceladas: 0,
+        };
+      }
+      bump(porServicio[srvKey], c.estado);
+    });
+
+    // ======================
+    // CREAR EXCEL
+    // ======================
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Clean & Garden";
+    wb.created = new Date();
+
+    // 🎨 ESTILOS SEGUROS PARA TYPESCRIPT
+    const headerStyle = {
+      font: { bold: true, color: { argb: "FFFFFFFF" } },
+      fill: {
+        type: "pattern" as const,
+        pattern: "solid" as const,
+        fgColor: { argb: "FF1A6D27" }, // Verde oscuro
+      },
+      alignment: { horizontal: "center" as const },
+      border: {
+        top: { style: "thin" as const },
+        left: { style: "thin" as const },
+        bottom: { style: "thin" as const },
+        right: { style: "thin" as const },
+      },
+    };
+
+    const border = {
+      top: { style: "thin" as const },
+      left: { style: "thin" as const },
+      bottom: { style: "thin" as const },
+      right: { style: "thin" as const },
+    };
+
+    // ======================
+    // HOJA RESUMEN
+    // ======================
+    const resumenSheet = wb.addWorksheet("Resumen Operacional");
+
+    resumenSheet.columns = [
+      { header: "Métrica", key: "metrica", width: 30 },
+      { header: "Valor", key: "valor", width: 20 },
+    ];
+
+    resumenSheet.addRows([
+      ["Total de citas", resumen.total],
+      ["Realizadas", resumen.realizadas],
+      ["Confirmadas", resumen.confirmadas],
+      ["Canceladas", resumen.canceladas],
+      ["Pendientes", resumen.pendientes],
+    ]);
+
+    resumenSheet.getRow(1).eachCell(cell => {
+      cell.style = { ...headerStyle } as any;
+    });
+
+    resumenSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(cell => {
+        cell.border = { ...border } as any;
+      });
+    });
+
+    // ======================
+    // HOJA POR DÍA
+    // ======================
+    const diaSheet = wb.addWorksheet("Citas por día");
+
+    diaSheet.columns = [
+      { header: "Fecha", key: "fecha", width: 15 },
+      { header: "Total", key: "total", width: 10 },
+      { header: "Realizadas", key: "realizadas", width: 12 },
+      { header: "Confirmadas", key: "confirmadas", width: 12 },
+      { header: "Canceladas", key: "canceladas", width: 12 },
+      { header: "Pendientes", key: "pendientes", width: 12 },
+    ];
+
+    Object.keys(porDia).forEach(k => diaSheet.addRow({ fecha: k, ...porDia[k] }));
+
+    diaSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
+    diaSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => (c.border = { ...border } as any));
+    });
+
+    // ======================
+    // HOJA POR TÉCNICO
+    // ======================
+    const tecSheet = wb.addWorksheet("Citas por técnico");
+
+    tecSheet.columns = [
+      { header: "Técnico", key: "tecnico", width: 25 },
+      { header: "Total", key: "total", width: 10 },
+      { header: "Realizadas", key: "realizadas", width: 12 },
+      { header: "Confirmadas", key: "confirmadas", width: 12 },
+      { header: "Canceladas", key: "canceladas", width: 12 },
+      { header: "Pendientes", key: "pendientes", width: 12 },
+    ];
+
+    Object.values(porTecnico).forEach(t =>
+      tecSheet.addRow({
+        tecnico: `${t.nombre} ${t.apellido}`,
+        total: t.total,
+        realizadas: t.realizadas,
+        confirmadas: t.confirmadas,
+        canceladas: t.canceladas,
+        pendientes: t.pendientes,
+      })
+    );
+
+    tecSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
+    tecSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => (c.border = { ...border } as any));
+    });
+
+    // ======================
+    // HOJA POR SERVICIO
+    // ======================
+    const srvSheet = wb.addWorksheet("Citas por servicio");
+
+    srvSheet.columns = [
+      { header: "Servicio", key: "servicio", width: 30 },
+      { header: "Total", key: "total", width: 10 },
+      { header: "Realizadas", key: "realizadas", width: 12 },
+      { header: "Confirmadas", key: "confirmadas", width: 12 },
+      { header: "Canceladas", key: "canceladas", width: 12 },
+      { header: "Pendientes", key: "pendientes", width: 12 },
+    ];
+
+    Object.values(porServicio).forEach(s =>
+      srvSheet.addRow({
+        servicio: s.nombreServicio,
+        total: s.total,
+        realizadas: s.realizadas,
+        confirmadas: s.confirmadas,
+        canceladas: s.canceladas,
+        pendientes: s.pendientes,
+      })
+    );
+
+    srvSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
+    srvSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => (c.border = { ...border } as any));
+    });
+
+    // ======================
+    // HOJA DETALLE
+    // ======================
+    const detSheet = wb.addWorksheet("Detalle");
+
+    detSheet.columns = [
+      { header: "Fecha", key: "fecha", width: 22 },
+      { header: "Cliente", key: "cliente", width: 28 },
+      { header: "Servicio", key: "servicio", width: 22 },
+      { header: "Estado", key: "estado", width: 14 },
+      { header: "Técnico", key: "tecnico", width: 25 },
+    ];
+
+    citas.forEach(c => {
+      detSheet.addRow({
+        fecha: new Date(c.fecha_hora).toLocaleString("es-CL"),
+        cliente: c.usuario_cita_cliente_idTousuario
+          ? `${c.usuario_cita_cliente_idTousuario.nombre} ${c.usuario_cita_cliente_idTousuario.apellido}`
+          : "-",
+        servicio: c.servicio?.nombre ?? "-",
+        estado: c.estado,
+        tecnico: c.usuario_cita_tecnico_idTousuario
+          ? `${c.usuario_cita_tecnico_idTousuario.nombre} ${c.usuario_cita_tecnico_idTousuario.apellido}`
+          : "Sin técnico",
+      });
+    });
+
+    detSheet.getRow(1).eachCell(c => (c.style = { ...headerStyle } as any));
+    detSheet.eachRow((row, idx) => {
+      if (idx === 1) return;
+      row.eachCell(c => (c.border = { ...border } as any));
+    });
+
+    // ======================
+    // DESCARGA
+    // ======================
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=reporte-operacional-${mes}.xlsx`
+    );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("❌ Error exportando Excel operacional:", err);
+    res.status(500).json({ error: "Error exportando Excel operacional" });
+  }
+});
+
+// ================================================
+// 📅 HORARIOS DEL TÉCNICO PARA EL CALENDARIO
+// ================================================
+
+app.get("/tecnico/horarios", authMiddleware, async (req, res) => {
+  try {
+    const tecnicoId = BigInt((req as any).user.id);
+
+    if (
+      (req as any).user.rol !== "jardinero" ) {
+      return res.status(403).json({ error: "Solo los jardineros pueden ver sus horarios." });
+    }
+
+    // =============================================================
+    // 1) HORARIOS DEL TÉCNICO (disponibilidad_mensual)
+    // =============================================================
+    const horarios = await prisma.disponibilidad_mensual.findMany({
+      where: { tecnico_id: tecnicoId },
+      include: {
+        disponibilidad_excepcion: true
+      },
+      orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }]
+    });
+
+    // =============================================================
+    // 2) CITAS DEL TÉCNICO
+    // =============================================================
+    const citas = await prisma.cita.findMany({
+      where: { tecnico_id: tecnicoId },
+      include: {
+        usuario_cita_cliente_idTousuario: {
+          select: { nombre: true, apellido: true }
+        }
+      }
+    });
+
+    // =============================================================
+    // 3) EXCEPCIONES del técnico + globales (feriado/día completo)
+    // =============================================================
+    const excepciones = await prisma.disponibilidad_excepcion.findMany({
+      where: {
+        OR: [
+          { tecnico_id: tecnicoId }, // vacaciones / licencias / permisos
+          {
+            AND: [
+              { tecnico_id: null }, // excepciones globales
+              { tipo: { in: ["feriado_irrenunciable", "dia_completo"] } }
+            ]
+          }
+        ]
+      },
+      orderBy: [
+        { fecha: "asc" },
+        { desde: "asc" }
+      ]
+    });
+
+    const eventos: any[] = [];
+
+    // =============================================================
+    // A) Convertir HORARIOS en eventos del calendario
+    // =============================================================
+    for (const h of horarios) {
+
+      const start = h.hora_inicio.toISOString();
+      const end = h.hora_fin.toISOString();
+
+      // Verificar si existe cita entre ese rango
+      const cita = citas.find(
+        c => c.fecha_hora >= h.hora_inicio && c.fecha_hora < h.hora_fin
+      );
+
+      let title = "";
+
+      if (h.excepcion_id && h.disponibilidad_excepcion) {
+        // evento bloqueado por excepción vinculada al horario
+        title = `🔒 ${h.disponibilidad_excepcion.motivo ?? "Bloqueado"}`;
+      } 
+      else if (cita) {
+        // evento de cita
+        title = `🟦 Cita: ${cita.usuario_cita_cliente_idTousuario?.nombre ?? ""} ${cita.usuario_cita_cliente_idTousuario?.apellido ?? ""}`;
+      } 
+      else {
+        // horario disponible
+        title = `Disponible (${h.cupos_ocupados}/${h.cupos_totales})`;
+      }
+
+      eventos.push({
+        id: `horario_${h.id}`,
+        start,
+        end,
+        title,
+        allDay: false,
+        bloqueado: h.excepcion_id !== null,
+        className: h.excepcion_id
+          ? "bg-red-500 text-white"
+          : cita
+            ? "bg-blue-600 text-white"
+            : "bg-green-600 text-white"
+      });
+    }
+
+    // =============================================================
+    // B) Convertir EXCEPCIONES en eventos independientes
+    // =============================================================
+    for (const ex of excepciones) {
+
+      // ===========================
+      // 1) Excepción de un solo día
+      // ===========================
+      if (ex.fecha && !ex.desde && !ex.hasta) {
+        const date = ex.fecha.toISOString().split("T")[0];
+
+        eventos.push({
+          id: `excepcion_${ex.id}`,
+          start: date,
+          allDay: true,
+          title: `🔒 ${ex.motivo ?? ex.tipo ?? "Día bloqueado"}`,
+          className: "bg-red-600 text-white"
+        });
+
+        continue;
+      }
+
+      // ===========================
+      // 2) Excepción con rango (vacaciones / licencia / permiso)
+      // ===========================
+      if (ex.desde && ex.hasta) {
+        eventos.push({
+          id: `excepcion_${ex.id}`,
+          start: ex.desde.toISOString(),
+          end: ex.hasta.toISOString(),
+          allDay: false,
+          title: `🔒 ${ex.motivo ?? ex.tipo ?? "No disponible"}`,
+          className: "bg-red-700 text-white"
+        });
+
+        continue;
+      }
+    }
+
+    // =============================================================
+    // ENTREGAR EVENTOS AL FRONT
+    // =============================================================
+    return res.json(
+      JSON.parse(JSON.stringify(eventos, (_, v) => (typeof v === "bigint" ? Number(v) : v)))
+    );
+
+  } catch (err) {
+    console.error("❌ Error en /tecnico/horarios:", err);
+    return res.status(500).json({ error: "Error obteniendo horarios del técnico." });
+  }
+});
 
 //====================================================================================================
 // Verificar variables de entorno al inicio
