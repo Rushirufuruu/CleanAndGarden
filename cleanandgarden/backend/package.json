@@ -29,6 +29,8 @@
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.6",
+    "pdf-lib": "^1.17.1",
+    "pdfmake": "^0.2.20",
     "transbank-sdk": "^6.1.0",
     "ws": "^8.18.3"
   },

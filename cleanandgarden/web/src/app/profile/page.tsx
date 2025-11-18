@@ -33,34 +33,44 @@ interface Comuna {
   nombre: string;
 }
 
+// 🧩 Normaliza estructura del backend
+function normalizarUsuario(usuario: any): User {
+  return {
+    ...usuario,
+    direccion: (usuario.direccion || []).map((dir: any) => ({
+      id: dir.id || Date.now() + Math.random(), // ID temporal único
+      calle: dir.calle || "",
+      region: dir.comuna?.region?.nombre || "",
+      comuna: dir.comuna?.nombre || "",
+    })),
+  };
+}
+
 export default function PerfilUsuario() {
   const [user, setUser] = useState<User | null>(null);
   const [backupUser, setBackupUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
-
   const [regiones, setRegiones] = useState<Region[]>([]);
   const [comunasPorRegion, setComunasPorRegion] = useState<Record<number, Comuna[]>>({});
-
   const router = useRouter();
 
-  // ✅ Cargar perfil normalizando direcciones
+  // ✅ Cargar perfil
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, { credentials: "include" });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
+          credentials: "include",
+        });
+        if (res.status === 401) {
+          Swal.fire("Sesión expirada", "Por favor inicia sesión nuevamente", "warning");
+          router.push("/login");
+          return;
+        }
         const data = await res.json();
-
         if (res.ok && data.user) {
-          const usuario = data.user;
-          usuario.direccion = (usuario.direccion || []).map((dir: any) => ({
-            id: dir.id,
-            calle: dir.calle || "",
-            region: dir.comuna?.region?.nombre || "",
-            comuna: dir.comuna?.nombre || "",
-          }));
-
+          const usuario = normalizarUsuario(data.user);
           setUser(usuario);
           setBackupUser(JSON.parse(JSON.stringify(usuario)));
         }
@@ -103,95 +113,88 @@ export default function PerfilUsuario() {
 
   // ➕ Agregar dirección
   const addDireccion = () => {
-    if (!user) return;
-    setUser({
-      ...user,
-      direccion: [
-        ...(user.direccion || []),
-        { calle: "", region: "", comuna: "", _new: true },
-      ],
+    setUser((prev) => {
+      if (!prev) return prev;
+      const nuevaDireccion: Direccion = {
+        id: Date.now() + Math.random(),
+        calle: "",
+        region: "",
+        comuna: "",
+        _new: true,
+      };
+      return {
+        ...prev,
+        direccion: [...(prev.direccion || []), nuevaDireccion],
+      };
     });
   };
 
-  // 🔄 Cambiar valores
+  // 🔄 Cambiar valores (forza re-render)
   const handleDireccionChange = (index: number, field: keyof Direccion, value: string) => {
-    if (!user) return;
-    const updated = [...user.direccion];
-    updated[index] = { ...updated[index], [field]: value };
-    setUser({ ...user, direccion: updated });
-  };
-
-  // 🗑️ Marcar o eliminar dirección
-  const deleteDireccion = (index: number) => {
-    setUser((prev: any) => {
-      const updated = [...prev.direccion];
-      const dir = updated[index];
-
-      // Si ya existe en BD, se marca para eliminar
-      if (dir.id) {
-        updated[index] = { ...dir, _delete: true };
-      } else {
-        // Si es nueva (sin guardar), se quita directamente
-        updated.splice(index, 1);
-      }
-
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = JSON.parse(JSON.stringify(prev.direccion));
+      updated[index] = { ...updated[index], [field]: value };
       return { ...prev, direccion: updated };
     });
   };
 
-  // ✅ Validar formulario
+  // 🗑️ Eliminar dirección (clon profundo)
+  const deleteDireccion = (index: number) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = JSON.parse(JSON.stringify(prev.direccion));
+      const dir = updated[index];
+      if (dir.id && !dir._new) {
+        updated[index] = { ...dir, _delete: true };
+      } else {
+        updated.splice(index, 1);
+      }
+      return { ...prev, direccion: updated };
+    });
+  };
+
+  // ✅ Validar antes de guardar
   const validateForm = () => {
     const nombre = (user?.nombre ?? "").trim();
     const apellido = (user?.apellido ?? "").trim();
     const telefono = (user?.telefono ?? "").trim();
 
     if (!nombre || !apellido || !telefono) {
-      const camposFaltantes: string[] = [];
-      if (!nombre) camposFaltantes.push("nombre");
-      if (!apellido) camposFaltantes.push("apellido");
-      if (!telefono) camposFaltantes.push("teléfono");
-
       Swal.fire({
         icon: "warning",
         title: "Campos obligatorios",
-        text: `Debes completar los siguientes campos: ${camposFaltantes.join(", ")}.`,
+        text: "Debes completar nombre, apellido y teléfono.",
       });
       return false;
     }
 
-    // Validar formato teléfono chileno
     if (!/^\+569\d{8}$/.test(telefono)) {
       Swal.fire({
         icon: "warning",
         title: "Teléfono inválido",
-        text: "El número debe tener formato válido: +569XXXXXXXX",
+        text: "Debe tener formato +569XXXXXXXX",
       });
       return false;
     }
 
-    // Validar direcciones
-    if (!user) return false;
-    const direccionesActivas = user.direccion.filter((d) => !d._delete);
+    const direccionesActivas = (user?.direccion || []).filter((d) => !d._delete);
     if (direccionesActivas.length === 0) {
       Swal.fire({
         icon: "warning",
         title: "Dirección requerida",
-        text: "Debes ingresar al menos una dirección.",
+        text: "Debes ingresar al menos una dirección antes de guardar.",
       });
       return false;
     }
 
     for (let i = 0; i < direccionesActivas.length; i++) {
       const dir = direccionesActivas[i];
-      const calle = (dir.calle ?? "").trim();
-      const region = (dir.region ?? "").trim();
-      const comuna = (dir.comuna ?? "").trim();
-
-      if (!calle || !region || !comuna) {
+      if (!dir.calle.trim() || !dir.region.trim() || !dir.comuna.trim()) {
         Swal.fire({
           icon: "warning",
           title: "Campos de dirección incompletos",
-          text: `La dirección #${i + 1} está incompleta. Asegúrate de llenar calle, región y comuna.`,
+          text: `La dirección #${i + 1} está incompleta.`,
         });
         return false;
       }
@@ -223,22 +226,23 @@ export default function PerfilUsuario() {
       Swal.fire({
         icon: "success",
         title: "Perfil actualizado",
-        text: "Los cambios fueron guardados correctamente",
+        text: "Cambios guardados correctamente",
         timer: 2000,
         showConfirmButton: false,
       });
 
-      setEditMode(false);
-      setBackupUser(JSON.parse(JSON.stringify(user)));
-
-      // ✅ Si el usuario vino desde el login con perfil incompleto → redirigir al inicio
-      const fromIncomplete = sessionStorage.getItem("cameFromIncompleteProfile");
-      if (fromIncomplete === "true") {
-        sessionStorage.removeItem("cameFromIncompleteProfile");
-        setTimeout(() => {
-          router.push("/");
-        }, 1000);
+      // 🔥 NUEVO BLOQUE: recargar el perfil desde el backend
+      const refresh = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile`, {
+        credentials: "include",
+      });
+      const refreshedData = await refresh.json();
+      if (refresh.ok && refreshedData.user) {
+        const usuarioNormalizado = normalizarUsuario(refreshedData.user);
+        setUser(usuarioNormalizado);
+        setBackupUser(JSON.parse(JSON.stringify(usuarioNormalizado)));
       }
+
+      setEditMode(false);
     } else {
       Swal.fire("Error", data.error || "No se pudo actualizar el perfil", "error");
     }
@@ -250,19 +254,18 @@ export default function PerfilUsuario() {
   }
 };
 
-  // ❌ Cancelar cambios
   const handleCancel = () => {
     if (backupUser) setUser(JSON.parse(JSON.stringify(backupUser)));
     setEditMode(false);
   };
 
-  // 🧭 Estados de carga
   if (loading)
     return (
       <div className="flex justify-center items-center h-screen">
         <p className="text-gray-600">Cargando perfil...</p>
       </div>
     );
+
   if (!user)
     return (
       <div className="flex justify-center items-center h-screen">
@@ -270,16 +273,12 @@ export default function PerfilUsuario() {
       </div>
     );
 
-  // ✅ Render principal
   return (
     <div className="min-h-screen bg-[#FAF6EB] flex flex-col items-center py-10">
       <div className="bg-white shadow-lg rounded-lg p-8 w-full max-w-2xl">
         {!editMode ? (
           <>
-            <h1 className="text-2xl font-bold text-center text-[#2E5430] mb-6">
-              Mi Perfil
-            </h1>
-
+            <h1 className="text-2xl font-bold text-center text-[#2E5430] mb-6">Mi Perfil</h1>
             <div className="space-y-4">
               <div>
                 <label className="block text-gray-600 text-sm mb-1">Nombre completo</label>
@@ -290,9 +289,8 @@ export default function PerfilUsuario() {
                   className="w-full border border-gray-300 rounded-md p-2 bg-gray-100"
                 />
               </div>
-
               <div>
-                <label className="block text-gray-600 text-sm mb-1">Correo electrónico</label>
+                <label className="block text-gray-600 text-sm mb-1">Correo</label>
                 <input
                   type="email"
                   value={user.email}
@@ -300,7 +298,6 @@ export default function PerfilUsuario() {
                   className="w-full border border-gray-300 rounded-md p-2 bg-gray-100"
                 />
               </div>
-
               <div>
                 <label className="block text-gray-600 text-sm mb-1">Teléfono</label>
                 <input
@@ -348,9 +345,7 @@ export default function PerfilUsuario() {
           </>
         ) : (
           <>
-            <h1 className="text-2xl font-bold text-center text-[#2E5430] mb-6">
-              Editar Perfil
-            </h1>
+            <h1 className="text-2xl font-bold text-center text-[#2E5430] mb-6">Editar Perfil</h1>
 
             {/* Campos personales */}
             <div className="grid grid-cols-2 gap-4">
@@ -361,7 +356,6 @@ export default function PerfilUsuario() {
                   value={user.nombre}
                   onChange={(e) => setUser({ ...user, nombre: e.target.value })}
                   className="w-full border border-gray-300 rounded-md p-2"
-                  required
                 />
               </div>
               <div>
@@ -371,7 +365,6 @@ export default function PerfilUsuario() {
                   value={user.apellido}
                   onChange={(e) => setUser({ ...user, apellido: e.target.value })}
                   className="w-full border border-gray-300 rounded-md p-2"
-                  required
                 />
               </div>
               <div className="col-span-2">
@@ -381,7 +374,6 @@ export default function PerfilUsuario() {
                   value={user.telefono || ""}
                   onChange={(e) => setUser({ ...user, telefono: e.target.value })}
                   className="w-full border border-gray-300 rounded-md p-2"
-                  required
                 />
               </div>
             </div>
@@ -403,13 +395,24 @@ export default function PerfilUsuario() {
                 .map((dir, index) => {
                   const regionObj = regiones.find((r) => r.nombre === dir.region);
                   const regionId = regionObj?.id;
-                  if (regionId) fetchComunas(regionId);
 
                   return (
-                    <div key={index} className="border border-gray-300 rounded-md p-3 mb-3 relative">
+                    <div
+                      key={`${dir.id}-${index}`}
+                      className="border border-gray-300 rounded-md p-3 mb-3 relative"
+                      style={{ overflow: "visible" }}
+                    >
+                      {/* Botón eliminar reposicionado */}
                       <button
                         onClick={() => deleteDireccion(index)}
-                        className="absolute top-2 right-2 text-red-500 hover:text-red-700"
+                        type="button"
+                        className="absolute -top-3 right-1 text-red-500 hover:text-red-700 z-50"
+                        style={{
+                          backgroundColor: "white",
+                          borderRadius: "50%",
+                          padding: "3px",
+                          boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                        }}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -420,25 +423,18 @@ export default function PerfilUsuario() {
                         value={dir.calle}
                         onChange={(e) => handleDireccionChange(index, "calle", e.target.value)}
                         className="w-full border border-gray-300 rounded-md p-2 mb-2"
-                        required
                       />
 
                       <label className="block text-gray-600 text-sm mb-1">Región *</label>
                       <select
                         value={dir.region}
                         onChange={(e) => {
-                          const selectedRegionName = e.target.value;
-                          // Actualiza solo la región
-                          handleDireccionChange(index, "region", selectedRegionName);
-
-                          // Busca el id de la región y carga sus comunas
-                          const selectedRegion = regiones.find(
-                            (r) => r.nombre === selectedRegionName
-                          );
-                          if (selectedRegion) fetchComunas(selectedRegion.id);
+                          const regionName = e.target.value;
+                          handleDireccionChange(index, "region", regionName);
+                          const region = regiones.find((r) => r.nombre === regionName);
+                          if (region) fetchComunas(region.id);
                         }}
                         className="w-full border border-gray-300 rounded-md p-2 mb-2"
-                        required
                       >
                         <option value="">Selecciona una región</option>
                         {regiones.map((r) => (
@@ -448,13 +444,11 @@ export default function PerfilUsuario() {
                         ))}
                       </select>
 
-
                       <label className="block text-gray-600 text-sm mb-1">Comuna *</label>
                       <select
                         value={dir.comuna}
                         onChange={(e) => handleDireccionChange(index, "comuna", e.target.value)}
                         className="w-full border border-gray-300 rounded-md p-2"
-                        required
                       >
                         <option value="">Selecciona una comuna</option>
                         {regionId &&
@@ -472,14 +466,14 @@ export default function PerfilUsuario() {
             <div className="flex justify-between gap-3 mt-6">
               <button
                 onClick={handleCancel}
-                className="border border-[#2E5430] text-[#2E5430] py-2 px-4 rounded-md font-medium hover:bg-[#2E5430] hover:text-white"
+                className="border border-[#2E5430] text-[#2E5430] py-2 px-4 rounded-md hover:bg-[#2E5430] hover:text-white"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-[#2E5430] text-white py-2 px-4 rounded-md font-medium hover:bg-[#234624] disabled:opacity-50"
+                className="bg-[#2E5430] text-white py-2 px-4 rounded-md hover:bg-[#234624] disabled:opacity-50"
               >
                 {saving ? "Guardando..." : "Guardar Cambios"}
               </button>
