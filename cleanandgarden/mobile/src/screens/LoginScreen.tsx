@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { inicializarPushNotifications } from "../services/pushNotificationService";
 
 // URL del backend (localhost en desarrollo, Railway en producción)
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -66,6 +67,7 @@ export default function LoginScreen({ navigation }: any) {
         await AsyncStorage.setItem("userName", data.user.nombre || "Usuario");
         await AsyncStorage.setItem("userId", data.user.id?.toString() || "");
         await AsyncStorage.setItem("userRole", data.user.rol || "cliente"); // 🔸 Guardar rol
+        
       }
 
       // Si el backend devuelve redirectTo, mostramos advertencia
@@ -77,6 +79,11 @@ export default function LoginScreen({ navigation }: any) {
       } else {
         Alert.alert("✅ Éxito", data.message || "Inicio de sesión exitoso");
       }
+
+      // Inicializar push notifications después del login
+      inicializarPushNotifications(email.trim()).catch(err => {
+        console.error('⚠️ Error al registrar push token:', err);
+      });
 
       // Redirigir al Home/Tabs
       navigation.reset({
