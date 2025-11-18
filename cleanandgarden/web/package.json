@@ -16,12 +16,15 @@
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.76.0",
     "autoprefixer": "^10.4.22",
+    "braces": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "daisyui": "^4.12.14",
     "dayjs": "^1.11.18",
+    "fill-range": "^7.1.1",
     "jspdf": "^3.0.3",
     "lucide-react": "^0.545.0",
+    "micromatch": "^4.0.8",
     "next": "^15.5.3",
     "postcss": "^8.5.6",
     "react": "^19.1.1",
@@ -31,7 +34,8 @@
     "sweetalert2": "^11.26.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^3.4.18",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "to-regex-range": "^5.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
