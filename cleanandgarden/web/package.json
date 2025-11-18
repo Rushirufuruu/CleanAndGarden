@@ -38,7 +38,11 @@
     "daisyui": "^5.1.13",
     "eslint": "^9",
     "eslint-config-next": "15.4.7",
+    "lightningcss": "^1.28.3",
     "tailwindcss": "^4.1.13",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "lightningcss-linux-x64-gnu": "^1.28.3"
   }
 }
