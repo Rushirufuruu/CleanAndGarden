@@ -27,6 +27,20 @@ import { ChatWebSocket } from './lib/websocket';
 // Importación de librería webpay
 import { WebpayPlus, Options, Environment } from "transbank-sdk";
 
+// Importar funciones de recordatorios de citas
+import { enviarRecordatorios24Horas, enviarRecordatorios2Horas } from './lib/notificationScheduler';
+import cron from 'node-cron';
+
+// Importar sistema de notificaciones de citas y pagos
+import { 
+  notificarCitaCreada, 
+  notificarCitaCancelada, 
+  notificarCambioCita,
+  notificarCambioPago 
+} from './lib/citaNotifications';
+
+
+
 declare global {
   // eslint-disable-next-line no-var
   var chatWebSocketInstance: import('./lib/websocket').ChatWebSocket | undefined;
@@ -149,6 +163,8 @@ app.get('/health', async (_req, res) => {
   const r = await prisma.$queryRawUnsafe('SELECT 1 as ok') // Consulta cruda mínima
   res.json({ db: 'ok', r }) // Respondemos con el resultado por simpleza
 })
+
+
 
 // Listar usuarios desde la tabla `usuario` (Soporta paginación y orden básico)
 // Usa prisma.usuario.findMany con take/skip/orderBy dinámicos.
@@ -3513,6 +3529,11 @@ app.post("/cita/reservar", async (req, res) => {
       enviarCorreoConfirmacionReserva(result.id);
     });
 
+    // Enviar notificación push al cliente
+    setImmediate(() => {
+      notificarCitaCreada(result.id);
+    });
+
     return res.status(201).json({ ok: true, cita: toJSONSafe(result) });
   } catch (err: any) {
     console.error("❌ Error al reservar cita:", err);
@@ -3841,6 +3862,7 @@ app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Respons
 
         // Actualizar pago y registrar evento
         if (pago) {
+          const estadoAnterior = pago.estado;
           await prisma.$transaction(async (tx) => {
             await tx.pago.update({ where: { id: pago.id }, data: { estado: nuevoEstado, flow_payload: commitRes } });
             await tx.pago_evento.create({ data: { pago_id: pago.id, tipo_evento: 'return', estado_anterior: pago.estado as any, estado_nuevo: nuevoEstado as any, detalle: commitRes } });
@@ -3849,6 +3871,11 @@ app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Respons
               // marcar cita como confirmada
               await tx.cita.update({ where: { id: pago.cita_id }, data: { estado: 'confirmada' } });
             }
+          });
+
+          // Enviar notificación de cambio de estado del pago
+          setImmediate(() => {
+            notificarCambioPago(pago.id, estadoAnterior, nuevoEstado);
           });
         }
 
@@ -3872,6 +3899,11 @@ app.post('/cita/:id/cancelar', authMiddleware, async (req: Request, res: Respons
       }
 
       return updated;
+    });
+
+    // Enviar notificación push al cliente sobre la cancelación
+    setImmediate(() => {
+      notificarCitaCancelada(citaId, motivo_cancelacion);
     });
 
     res.json({ ok: true, cita: toJSONSafe(result) });
@@ -4484,6 +4516,27 @@ server.listen(PORT, () => {
 
 global.chatWebSocketInstance = new ChatWebSocket(server);
 
+// ====================================================================================
+// CRON JOBS: Recordatorios automáticos de citas
+// ====================================================================================
+console.log('⏰ Configurando cron jobs para recordatorios de citas...');
+
+// Ejecutar cada hora (minuto 0)
+cron.schedule('0 * * * *', async () => {
+  console.log('⏰ [CRON] Ejecutando verificación de recordatorios...');
+  try {
+    await enviarRecordatorios24Horas();
+    await enviarRecordatorios2Horas();
+  } catch (error) {
+    console.error('❌ [CRON] Error en recordatorios:', error);
+  }
+});
+
+console.log('✅ Cron jobs configurados: recordatorios cada hora');
+
+// ====================================================================================
+// Limpieza automática de tokens expirados
+// ====================================================================================
 // 🧹 Limpieza automática de tokens expirados (confirmación + recuperación)
 setInterval(async () => {
   try {
@@ -5271,6 +5324,62 @@ app.get("/citas/:email", async (req, res) => {
 });
 
 // ==========================================
+// CANCELAR UNA CITA (CAMBIAR ESTADO A CANCELADA)
+// ==========================================
+app.put("/citas/:id/cancelar", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ error: "Debe proporcionar el ID de la cita" });
+    }
+
+    // Verificar que la cita existe
+    const citaExistente = await prisma.cita.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!citaExistente) {
+      return res.status(404).json({ error: "Cita no encontrada" });
+    }
+
+    // Verificar que la cita no esté ya cancelada o realizada
+    if (citaExistente.estado === "cancelada") {
+      return res.status(400).json({ error: "La cita ya está cancelada" });
+    }
+
+    if (citaExistente.estado === "realizada") {
+      return res.status(400).json({ error: "No se puede cancelar una cita ya realizada" });
+    }
+
+    // Actualizar el estado a cancelada
+    const citaActualizada = await prisma.cita.update({
+      where: { id: BigInt(id) },
+      data: { estado: "cancelada" },
+    });
+
+    console.log(`✅ Cita #${id} cancelada correctamente`);
+
+    // Enviar notificación push al cliente sobre la cancelación
+    setImmediate(() => {
+      notificarCitaCancelada(BigInt(id));
+    });
+
+    res.json({
+      success: true,
+      message: "Cita cancelada correctamente",
+      cita: {
+        id: Number(citaActualizada.id),
+        estado: citaActualizada.estado,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error al cancelar cita:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ==========================================
 // OBTENER INFORMACIÓN DEL USUARIO POR SUPABASE AUTH_ID
 // ==========================================
 app.get("/usuario/:userId/info", async (req, res) => {
@@ -5711,7 +5820,184 @@ app.delete("/admin/comentarios/:id", verifyAdmin, async (req, res) => {
 });
 
 
+// =======================================
+// NOTIFICACIONES PUSH
+// =======================================
+app.post("/api/push-token", async (req, res) => {
+  try {
+    const { email, pushToken, platform } = req.body;
 
+    console.log("📱 Recibiendo push token:");
+    console.log("  Email:", email);
+    console.log("  Token:", pushToken);
+    console.log("  Platform:", platform);
+
+    if (!email || !pushToken) {
+      return res.status(400).json({ error: "email y pushToken son requeridos" });
+    }
+
+    // Buscar el usuario por email
+    const usuario = await prisma.usuario.findUnique({
+      where: { email }
+    });
+
+    if (!usuario) {
+      console.log("❌ Usuario no encontrado:", email);
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    console.log("✅ Usuario encontrado, ID:", usuario.id);
+
+    // upsert por token único
+    const dispositivo = await prisma.dispositivo.upsert({
+      where: { token_push: pushToken },
+      update: {
+        usuario_id: usuario.id,
+        plataforma: platform,
+        ultima_vez_visto: new Date(),
+      },
+      create: {
+        usuario_id: usuario.id,
+        plataforma: platform,
+        token_push: pushToken,
+        ultima_vez_visto: new Date(),
+      },
+    });
+
+    console.log("✅ Token guardado exitosamente");
+    
+    // Convertir BigInt a string para JSON
+    const dispositivoResponse = {
+      ...dispositivo,
+      id: dispositivo.id.toString(),
+      usuario_id: dispositivo.usuario_id.toString(),
+    };
+    
+    return res.json({ ok: true, dispositivo: dispositivoResponse });
+  } catch (e: any) {
+    console.error("❌ Error guardando token push:");
+    console.error("  Mensaje:", e.message);
+    console.error("  Stack:", e.stack);
+    return res.status(500).json({ error: "Error interno", details: e.message });
+  }
+});
+
+// =======================================
+// ENDPOINT MANUAL: Enviar recordatorios de citas
+// =======================================
+app.post("/api/recordatorios/enviar", async (req, res) => {
+  try {
+    console.log("🔔 Endpoint manual de recordatorios llamado");
+    
+    await enviarRecordatorios24Horas();
+    await enviarRecordatorios2Horas();
+    
+    res.json({ 
+      ok: true, 
+      message: "Recordatorios enviados exitosamente" 
+    });
+  } catch (error: any) {
+    console.error("❌ Error enviando recordatorios:", error);
+    res.status(500).json({ 
+      error: "Error al enviar recordatorios", 
+      details: error.message 
+    });
+  }
+});
+
+// =======================================
+// ENDPOINT DE PRUEBA: Enviar notificación a un usuario específico
+// =======================================
+app.post("/api/recordatorios/test", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "email es requerido" });
+    }
+
+    console.log("🧪 Enviando notificación de prueba a:", email);
+
+    // Buscar usuario
+    const usuario = await prisma.usuario.findUnique({
+      where: { email }
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Obtener tokens del usuario
+    const dispositivos = await prisma.dispositivo.findMany({
+      where: { usuario_id: usuario.id }
+    });
+
+    if (dispositivos.length === 0) {
+      return res.status(404).json({ 
+        error: "Usuario no tiene tokens de push registrados",
+        hint: "El usuario debe iniciar sesión en la app móvil primero"
+      });
+    }
+
+    const { Expo } = await import('expo-server-sdk');
+    const expo = new Expo();
+
+    // Filtrar tokens válidos
+    const pushTokens = dispositivos
+      .map(d => d.token_push)
+      .filter(token => Expo.isExpoPushToken(token));
+
+    if (pushTokens.length === 0) {
+      return res.status(400).json({ 
+        error: "No hay tokens válidos para este usuario" 
+      });
+    }
+
+    // Crear mensajes de prueba
+    const messages = pushTokens.map(token => ({
+      to: token,
+      sound: 'default' as const,
+      title: '🧪 Notificación de Prueba',
+      body: `Hola ${usuario.nombre}, esta es una notificación de prueba para verificar que el sistema funciona correctamente.`,
+      data: {
+        tipo: 'test',
+        timestamp: new Date().toISOString(),
+      },
+      priority: 'high' as const,
+    }));
+
+    // Enviar notificaciones
+    const chunks = expo.chunkPushNotifications(messages);
+    const tickets = [];
+
+    for (const chunk of chunks) {
+      try {
+        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets.push(...ticketChunk);
+        console.log("✅ Notificación enviada:", ticketChunk);
+      } catch (error) {
+        console.error("❌ Error enviando chunk:", error);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: "Notificación de prueba enviada",
+      usuario: {
+        email: usuario.email,
+        nombre: usuario.nombre,
+      },
+      tokensEnviados: pushTokens.length,
+      tickets,
+    });
+  } catch (error: any) {
+    console.error("❌ Error en endpoint de prueba:", error);
+    res.status(500).json({ 
+      error: "Error interno", 
+      details: error.message 
+    });
+  }
+});
 
 
 

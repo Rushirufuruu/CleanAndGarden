@@ -7,7 +7,6 @@ module.exports = {
   theme: {
     extend: {},
   },
-  darkMode: false, // Desactiva el modo oscuro de Tailwind
   plugins: [require("daisyui")],
   daisyui: {
     themes: ["light"], // Solo habilita el tema claro
