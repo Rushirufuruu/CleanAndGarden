@@ -1,13 +1,13 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { CheckCircle } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-export default function PagoExitosoPage() {
+function PagoExitosoContent() {
   const [loading, setLoading] = useState(true)
   const [paymentDetails, setPaymentDetails] = useState<any>(null)
   const [citaDetails, setCitaDetails] = useState<any>(null)
@@ -174,5 +174,20 @@ export default function PagoExitosoPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function PagoExitosoPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    }>
+      <PagoExitosoContent />
+    </Suspense>
   )
 }
