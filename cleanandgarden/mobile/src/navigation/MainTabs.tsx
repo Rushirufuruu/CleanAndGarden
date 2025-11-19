@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "../screens/HomeScreen";
 import AppointmentScreen from "../screens/AppointmentScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import ConversationsScreen from "../screens/ConversationsScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -25,6 +26,7 @@ export default function TabsNavigator() {
           let iconName: any;
           if (route.name === "Home") iconName = focused ? "home" : "home-outline";
           else if (route.name === "Citas") iconName = focused ? "calendar" : "calendar-outline";
+          else if (route.name === "Mensajes") iconName = focused ? "chatbubbles" : "chatbubbles-outline";
           else if (route.name === "Perfil") iconName = focused ? "person-circle" : "person-circle-outline";
           return <Ionicons name={iconName} size={focused ? size + 2 : size} color={color} />;
         },
@@ -40,6 +42,11 @@ export default function TabsNavigator() {
         name="Citas"
         component={AppointmentScreen}
         options={{ title: "Citas" }}
+      />
+      <Tab.Screen
+        name="Mensajes"
+        component={ConversationsScreen}
+        options={{ title: "Mensajes" }}
       />
       <Tab.Screen
         name="Perfil"
