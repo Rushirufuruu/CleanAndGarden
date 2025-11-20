@@ -3,7 +3,7 @@
  * Maneja el registro de tokens y envío de notificaciones push usando Expo
  */
 
-import { prisma } from './prisma.js';
+import { prisma } from './prisma';
 import { Expo, ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 
 const expo = new Expo();

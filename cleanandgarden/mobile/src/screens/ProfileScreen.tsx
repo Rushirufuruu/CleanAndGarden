@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { disconnectGlobalWebSocket } from "../services/globalWebSocket";
+import { eliminarTokenDelBackend } from "../services/pushNotificationService";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -67,8 +69,32 @@ export default function ProfileScreen({ navigation }: any) {
       {
         text: "Sí, salir",
         onPress: async () => {
-          await AsyncStorage.removeItem("userEmail");
-          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+          try {
+            // Obtener email antes de limpiar AsyncStorage
+            const userEmail = await AsyncStorage.getItem("userEmail");
+            
+            // Eliminar push token del backend
+            if (userEmail) {
+              await eliminarTokenDelBackend(userEmail);
+            }
+            
+            // Desconectar WebSocket global
+            disconnectGlobalWebSocket();
+            
+            // Limpiar datos locales
+            await AsyncStorage.removeItem("userEmail");
+            await AsyncStorage.removeItem("userId");
+            await AsyncStorage.removeItem("userName");
+            await AsyncStorage.removeItem("userRole");
+            await AsyncStorage.removeItem("mensajesNoLeidos");
+            
+            // Navegar al login
+            navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+          } catch (error) {
+            console.error('Error al cerrar sesión:', error);
+            // Aún así navegar al login
+            navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+          }
         },
       },
     ]);

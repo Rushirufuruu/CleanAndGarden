@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,11 +17,29 @@ import { useChatRealtime } from '../hooks/useChatRealtime';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
 
+// Variable global para rastrear qué conversación está abierta
+let conversacionAbierta: number | null = null;
+
+export function getConversacionAbierta(): number | null {
+  return conversacionAbierta;
+}
+
 export default function ChatScreen({ route, navigation }: any) {
   const { conversacionId, titulo } = route.params;
   const [inputText, setInputText] = useState('');
   const [usuarioActual, setUsuarioActual] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  // Marcar esta conversación como abierta cuando el componente se monta
+  useEffect(() => {
+    console.log('[ChatScreen] Conversación abierta:', conversacionId);
+    conversacionAbierta = Number(conversacionId);
+    
+    return () => {
+      console.log('[ChatScreen] Conversación cerrada:', conversacionId);
+      conversacionAbierta = null;
+    };
+  }, [conversacionId]);
 
   // Obtener usuario actual primero
   useEffect(() => {
@@ -57,6 +76,12 @@ export default function ChatScreen({ route, navigation }: any) {
       title: titulo || 'Chat',
       headerRight: () => (
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            onPress={handleLimpiarHistorial}
+            style={styles.deleteButton}
+          >
+            <Ionicons name="trash-outline" size={18} color="#ef4444" />
+          </TouchableOpacity>
           <View
             style={[
               styles.statusDot,
@@ -70,6 +95,56 @@ export default function ChatScreen({ route, navigation }: any) {
       ),
     });
   }, [titulo, connected, navigation]);
+
+  const handleLimpiarHistorial = () => {
+    Alert.alert(
+      'Limpiar historial',
+      '¿Estás seguro de que quieres eliminar todos los mensajes de este chat?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await fetch(
+                `${API_URL}/conversaciones/${conversacionId}/mensajes`,
+                {
+                  method: 'DELETE',
+                  credentials: 'include',
+                }
+              );
+
+              if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.error || 'Error al eliminar mensajes');
+              }
+
+              const result = await res.json();
+              console.log('Historial eliminado:', result);
+              
+              Alert.alert(
+                'Historial eliminado', 
+                `Se eliminaron ${result.mensajesEliminados} mensajes`,
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => navigation.goBack()
+                  }
+                ]
+              );
+            } catch (error) {
+              console.error('Error eliminando historial:', error);
+              Alert.alert('Error', 'No se pudo eliminar el historial');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleEnviar = async () => {
     if (!inputText.trim()) return;
@@ -210,6 +285,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 16,
+  },
+  deleteButton: {
+    padding: 6,
+    marginRight: 12,
   },
   statusDot: {
     width: 8,

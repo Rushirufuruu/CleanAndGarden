@@ -9,6 +9,7 @@ import {
   FlatList,
   Image,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -37,6 +38,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL;
 export default function HomeScreen({ navigation }: any) {
   const [servicios, setServicios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [userName, setUserName] = useState<string>("Usuario");
 
   // Obtener información del usuario autenticado
@@ -77,27 +79,35 @@ export default function HomeScreen({ navigation }: any) {
     fetchUserInfo();
   }, []);
 
+  const fetchServicios = async () => {
+    try {
+      const response = await fetch(
+        `${API_URL}/servicios`
+      );
+      if (!response.ok) throw new Error("Error al obtener los servicios");
+
+      const data = await response.json();
+      setServicios(data);
+    } catch (err: any) {
+      Alert.alert("Error", err?.message || "No se pudieron cargar los servicios");
+    }
+  };
+
   useEffect(() => {
-    const fetchServicios = async () => {
-      try {
-        setLoading(true);
-
-        const response = await fetch(
-          `${API_URL}/servicios`
-        );
-        if (!response.ok) throw new Error("Error al obtener los servicios");
-
-        const data = await response.json();
-        setServicios(data);
-      } catch (err: any) {
-        Alert.alert("Error", err?.message || "No se pudieron cargar los servicios");
-      } finally {
-        setLoading(false);
-      }
+    const loadInitialData = async () => {
+      setLoading(true);
+      await fetchServicios();
+      setLoading(false);
     };
 
-    fetchServicios();
+    loadInitialData();
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchServicios();
+    setRefreshing(false);
+  };
 
   const [nextAppointment, setNextAppointment] = useState<any>(null);
 
@@ -167,7 +177,17 @@ export default function HomeScreen({ navigation }: any) {
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" backgroundColor="#fefaf2" />
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+        <ScrollView 
+          contentContainerStyle={{ paddingBottom: 90 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#2E5430"
+              colors={['#2E5430']}
+            />
+          }
+        >
           {/* HEADER */}
           <View style={styles.headerContainer}>
             <View style={styles.headerTop}>

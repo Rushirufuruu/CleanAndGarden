@@ -14,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { inicializarPushNotifications } from "../services/pushNotificationService";
+import { connectGlobalWebSocket } from "../services/globalWebSocket";
 
 // URL del backend (localhost en desarrollo, Railway en producción)
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -84,6 +85,12 @@ export default function LoginScreen({ navigation }: any) {
       inicializarPushNotifications(email.trim()).catch(err => {
         console.error('⚠️ Error al registrar push token:', err);
       });
+
+      // Conectar WebSocket global para recibir mensajes en tiempo real
+      if (data.user?.id) {
+        console.log('🔌 Conectando WebSocket global para usuario:', data.user.id);
+        connectGlobalWebSocket(data.user.id);
+      }
 
       // Redirigir al Home/Tabs
       navigation.reset({

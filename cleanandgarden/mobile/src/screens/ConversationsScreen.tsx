@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,16 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import { getConversacionAbierta } from './ChatScreen';
+import { addConversacionUpdateListener } from '../services/globalWebSocket';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
-
-function getWebSocketURL(): string {
-  const wsUrl = API_URL.replace(/^https?:\/\//, (match: string) => {
-    return match.startsWith('https') ? 'wss://' : 'ws://';
-  });
-  console.log('[ConversationsScreen] WebSocket URL:', wsUrl);
-  return `${wsUrl}/ws`;
-}
 
 interface Usuario {
   id: number;
@@ -52,9 +46,6 @@ export default function ConversationsScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [usuarioActual, setUsuarioActual] = useState<Usuario | null>(null);
   const [mensajesNoLeidos, setMensajesNoLeidos] = useState<Record<number, number>>({});
-  const socketRef = useRef<WebSocket | null>(null);
-  const mensajesProcesados = useRef<Set<number>>(new Set()); // Para evitar duplicados
-  const [isFocused, setIsFocused] = useState(true); // Track si esta pantalla está visible
 
   // Modal para nueva conversación
   const [showModal, setShowModal] = useState(false);
@@ -112,23 +103,7 @@ export default function ConversationsScreen({ navigation }: any) {
     return () => subscription.remove();
   }, [conversaciones, navigation]);
 
-  // Detectar cuando esta pantalla está enfocada/visible
-  useEffect(() => {
-    const unsubscribeFocus = navigation.addListener('focus', () => {
-      console.log('[ConversationsScreen] Pantalla enfocada');
-      setIsFocused(true);
-    });
 
-    const unsubscribeBlur = navigation.addListener('blur', () => {
-      console.log('[ConversationsScreen] Pantalla desenfocada');
-      setIsFocused(false);
-    });
-
-    return () => {
-      unsubscribeFocus();
-      unsubscribeBlur();
-    };
-  }, [navigation]);
 
   // Cargar contadores desde AsyncStorage
   useEffect(() => {
@@ -200,145 +175,64 @@ export default function ConversationsScreen({ navigation }: any) {
     }
   }, [usuarioActual]);
 
-  // WebSocket para actualizaciones en tiempo real
+  // Escuchar actualizaciones del WebSocket global
   useEffect(() => {
     if (!usuarioActual) return;
 
-    console.log('[ConversationsScreen] Iniciando WebSocket useEffect');
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
-    const RECONNECT_DELAY_MS = 2000;
-
-    const connectWebSocket = () => {
-      // Cerrar socket anterior si existe
-      if (socketRef.current) {
-        console.log('[ConversationsScreen] Cerrando WebSocket anterior');
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-
-      try {
-        const wsUrl = getWebSocketURL();
-        console.log('[ConversationsScreen] Conectando a WebSocket:', wsUrl);
-        const socket = new WebSocket(wsUrl);
-        socketRef.current = socket;
-        reconnectAttempts = 0;
-
-        socket.onopen = () => {
-          console.log('[ConversationsScreen] WebSocket conectado exitosamente');
-        };
-
-        socket.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            console.log('[ConversationsScreen] WebSocket mensaje recibido:', msg);
-            if (msg.tipo === 'mensaje') {
-              console.log('[ConversationsScreen] Mensaje para conversacion:', msg.conversacionId);
-              
-              // Verificar si ya procesamos este mensaje (evitar duplicados)
-              if (mensajesProcesados.current.has(msg.id)) {
-                console.log('[ConversationsScreen] Mensaje ya procesado, ignorando');
-                return;
-              }
-              mensajesProcesados.current.add(msg.id);
-              
-              // Actualizar la conversación correspondiente
-              setConversaciones((prev) => {
-                const updated = prev.map((conv) => {
-                  if (conv.id === msg.conversacionId) {
-                    return {
-                      ...conv,
-                      ultimoMensaje: {
-                        cuerpo: msg.cuerpo,
-                        fecha: msg.creadoEn,
-                        esMio: msg.remitenteId === usuarioActual?.id,
-                      },
-                    };
-                  }
-                  return conv;
-                });
-                
-                // Ordenar por fecha del último mensaje (más reciente primero)
-                return updated.sort((a, b) => {
-                  const fechaA = a.ultimoMensaje?.fecha || a.fechaCreacion;
-                  const fechaB = b.ultimoMensaje?.fecha || b.fechaCreacion;
-                  return new Date(fechaB).getTime() - new Date(fechaA).getTime();
-                });
-              });
-
-              // Incrementar contador si no es mío
-              if (msg.remitenteId !== usuarioActual?.id) {
-                console.log('[ConversationsScreen] Mensaje de otro usuario');
-                console.log('[ConversationsScreen] Remitente:', msg.remitenteId, 'Usuario actual:', usuarioActual?.id);
-                console.log('[ConversationsScreen] Pantalla enfocada?:', isFocused);
-                
-                setMensajesNoLeidos((prev) => {
-                  const updated = {
-                    ...prev,
-                    [msg.conversacionId]: (prev[msg.conversacionId] || 0) + 1,
-                  };
-                  // Persistir en AsyncStorage
-                  AsyncStorage.setItem('mensajesNoLeidos', JSON.stringify(updated)).catch(err =>
-                    console.error('Error guardando contadores:', err)
-                  );
-                  return updated;
-                });
-
-                // Mostrar notificación SOLO si esta pantalla está visible (no estás en un chat)
-                if (isFocused) {
-                  console.log('[ConversationsScreen] Mostrando notificación');
-                  const nombreRemitente = msg.remitente 
-                    ? `${msg.remitente.nombre} ${msg.remitente.apellido}`
-                    : 'Nuevo mensaje';
-                  
-                  Notifications.scheduleNotificationAsync({
-                    content: {
-                      title: nombreRemitente,
-                      body: msg.cuerpo,
-                      data: { conversacionId: msg.conversacionId },
-                    },
-                    trigger: null,
-                  }).then(() => {
-                    console.log('[ConversationsScreen] ✅ Notificación enviada');
-                  }).catch(err => {
-                    console.error('[ConversationsScreen] ❌ Error enviando notificación:', err);
-                  });
-                } else {
-                  console.log('[ConversationsScreen] No mostrar notificación - estás en un chat');
-                }
-              } else {
-                console.log('[ConversationsScreen] Es mensaje propio, no mostrar notificación');
-              }
-            }
-          } catch (err) {
-            console.error('Error procesando mensaje WebSocket:', err);
+    console.log('[ConversationsScreen] Suscribiendo a actualizaciones del WebSocket global');
+    
+    const unsubscribe = addConversacionUpdateListener((conversacionId, msg) => {
+      console.log('[ConversationsScreen] Actualización recibida para conversación:', conversacionId);
+      
+      // Actualizar la conversación correspondiente
+      setConversaciones((prev) => {
+        const updated = prev.map((conv) => {
+          if (conv.id === conversacionId) {
+            return {
+              ...conv,
+              ultimoMensaje: {
+                cuerpo: msg.cuerpo,
+                fecha: msg.creadoEn,
+                esMio: msg.remitenteId === usuarioActual?.id,
+              },
+            };
           }
-        };
+          return conv;
+        });
+        
+        // Ordenar por fecha del último mensaje (más reciente primero)
+        return updated.sort((a, b) => {
+          const fechaA = a.ultimoMensaje?.fecha || a.fechaCreacion;
+          const fechaB = b.ultimoMensaje?.fecha || b.fechaCreacion;
+          return new Date(fechaB).getTime() - new Date(fechaA).getTime();
+        });
+      });
 
-        socket.onerror = (err) => {
-          console.error('[ConversationsScreen] Error WebSocket:', err);
-        };
-
-        socket.onclose = () => {
-          console.log('[ConversationsScreen] WebSocket cerrado');
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
+      // Actualizar contador si no es mío
+      if (msg.remitenteId !== usuarioActual?.id) {
+        setMensajesNoLeidos((prev) => {
+          // No incrementar si el chat está abierto
+          const conversacionAbierta = getConversacionAbierta();
+          if (conversacionAbierta === conversacionId) {
+            return prev;
           }
-        };
-      } catch (err) {
-        console.error('Error creando WebSocket:', err);
+          
+          const updated = {
+            ...prev,
+            [conversacionId]: (prev[conversacionId] || 0) + 1,
+          };
+          // Persistir en AsyncStorage
+          AsyncStorage.setItem('mensajesNoLeidos', JSON.stringify(updated)).catch(err =>
+            console.error('Error guardando contadores:', err)
+          );
+          return updated;
+        });
       }
-    };
-
-    connectWebSocket();
+    });
 
     return () => {
-      console.log('[ConversationsScreen] Cleanup: cerrando WebSocket');
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
+      console.log('[ConversationsScreen] Desuscribiendo del WebSocket global');
+      unsubscribe();
     };
   }, [usuarioActual?.id]);
 

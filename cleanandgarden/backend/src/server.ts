@@ -39,6 +39,9 @@ import {
   notificarCambioPago 
 } from './lib/citaNotifications';
 
+// Importar funciones de push notifications
+import { enviarNotificacionPush } from './lib/pushNotification';
+
 
 
 declare global {
@@ -4733,6 +4736,9 @@ app.get('/conversaciones', authMiddleware, async (req: Request, res: Response) =
           }
         },
         mensaje: {
+          where: {
+            eliminado_en: null
+          },
           orderBy: {
             creado_en: 'desc'
           },
@@ -4835,6 +4841,45 @@ app.get('/conversaciones/:id/mensajes', authMiddleware, async (req: Request, res
   } catch (err) {
     console.error('❌ Error al obtener mensajes:', err);
     res.status(500).json({ error: 'Error al obtener mensajes' });
+  }
+});
+
+// Eliminar todos los mensajes de una conversación (limpiar historial)
+app.delete('/conversaciones/:id/mensajes', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const conversacionId = BigInt(req.params.id);
+
+    // Verificar que el usuario sea participante de la conversación
+    const participante = await prisma.participante_conversacion.findFirst({
+      where: {
+        conversacion_id: conversacionId,
+        usuario_id: BigInt(userId)
+      }
+    });
+
+    if (!participante) {
+      return res.status(403).json({ error: 'No tienes acceso a esta conversación' });
+    }
+
+    // Soft delete: marcar mensajes como eliminados
+    const result = await prisma.mensaje.updateMany({
+      where: {
+        conversacion_id: conversacionId,
+        eliminado_en: null
+      },
+      data: {
+        eliminado_en: new Date()
+      }
+    });
+
+    res.json({ 
+      ok: true, 
+      mensajesEliminados: Number(result.count) 
+    });
+  } catch (err) {
+    console.error('❌ Error al eliminar mensajes:', err);
+    res.status(500).json({ error: 'Error al eliminar mensajes' });
   }
 });
 
@@ -4988,6 +5033,40 @@ app.post('/mensajes', authMiddleware, async (req: Request, res: Response) => {
       global.chatWebSocketInstance.broadcast(
         JSON.stringify({ tipo: 'mensaje', ...mensajeFormatted })
       );
+    }
+
+    // Enviar push notification al destinatario
+    // Obtener el otro participante de la conversación
+    const otrosParticipantes = await prisma.participante_conversacion.findMany({
+      where: {
+        conversacion_id: BigInt(conversacionId),
+        usuario_id: {
+          not: BigInt(userId)
+        }
+      },
+      include: {
+        usuario: {
+          select: {
+            email: true,
+            nombre: true,
+            apellido: true
+          }
+        }
+      }
+    });
+
+    // Enviar push notification a cada destinatario
+    for (const participante of otrosParticipantes) {
+      const nombreRemitente = `${nuevoMensaje.usuario.nombre} ${nuevoMensaje.usuario.apellido}`;
+      
+      enviarNotificacionPush(
+        participante.usuario.email,
+        nombreRemitente,
+        cuerpo,
+        { conversacionId: Number(conversacionId) }
+      ).catch(err => {
+        console.error('Error enviando push notification:', err);
+      });
     }
 
     res.json(toJSONSafe(mensajeFormatted));
