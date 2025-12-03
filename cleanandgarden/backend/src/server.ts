@@ -5650,6 +5650,24 @@ app.get("/usuario/info/email/:email", async (req, res) => {
             codigo: true,
           },
         },
+        direccion: {
+          select: {
+            id: true,
+            calle: true,
+            comuna: {
+              select: {
+                id: true,
+                nombre: true,
+                region: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -5669,6 +5687,18 @@ app.get("/usuario/info/email/:email", async (req, res) => {
       telefono: usuario.telefono,
       rol: usuario.rol ? usuario.rol.nombre : null,
       rolCodigo: usuario.rol ? usuario.rol.codigo : null,
+      direccion: usuario.direccion.map((dir: any) => ({
+        id: Number(dir.id),
+        calle: dir.calle,
+        comuna: dir.comuna ? {
+          id: Number(dir.comuna.id),
+          nombre: dir.comuna.nombre,
+          region: {
+            id: Number(dir.comuna.region.id),
+            nombre: dir.comuna.region.nombre,
+          },
+        } : null,
+      })),
     };
 
     res.json(userInfo);

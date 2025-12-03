@@ -9,6 +9,8 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,8 +49,8 @@ export default function ProfileScreen({ navigation }: any) {
         setEditData({
           telefono: data.telefono || "",
           direccion:
-            data.direccion?.[0]?.comuna?.nombre
-              ? `${data.direccion[0].comuna.nombre}, ${data.direccion[0].comuna.region.nombre}`
+            data.direccion?.[0]?.calle
+              ? `${data.direccion[0].calle}${data.direccion[0].comuna ? `, ${data.direccion[0].comuna.nombre}, ${data.direccion[0].comuna.region.nombre}` : ''}`
               : "",
         });
       } catch (err: any) {
@@ -159,8 +161,8 @@ export default function ProfileScreen({ navigation }: any) {
             <View style={styles.infoItem}>
               <Ionicons name="home-outline" size={22} color="#2E5430" />
               <Text style={styles.infoText}>
-                {userData?.direccion?.[0]?.comuna?.nombre
-                  ? `${userData.direccion[0].comuna.nombre}, ${userData.direccion[0].comuna.region.nombre}`
+                {userData?.direccion?.[0]?.calle
+                  ? `${userData.direccion[0].calle}${userData.direccion[0].comuna ? `, ${userData.direccion[0].comuna.nombre}, ${userData.direccion[0].comuna.region.nombre}` : ''}`
                   : "Sin dirección registrada"}
               </Text>
             </View>
@@ -197,25 +199,37 @@ export default function ProfileScreen({ navigation }: any) {
         animationType="slide"
         onRequestClose={() => setEditVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Editar perfil</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setEditVisible(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.modalContainer}>
+                <Text style={styles.modalTitle}>Editar perfil</Text>
 
-            <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Teléfono</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={editData.telefono}
-                onChangeText={(text) =>
-                  setEditData((prev) => ({ ...prev, telefono: text }))
-                }
-                placeholder="+56 9 1234 5678"
-                keyboardType="phone-pad"
-              />
-            </View>
+                <View style={styles.modalField}>
+                  <Text style={styles.modalLabel}>Teléfono</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={editData.telefono}
+                    onChangeText={(text) =>
+                      setEditData((prev) => ({ ...prev, telefono: text }))
+                    }
+                    placeholder="+56 9 1234 5678"
+                    keyboardType="phone-pad"
+                  />
+                </View>
 
-            <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Dirección</Text>
+                <View style={styles.modalField}>
+                  <Text style={styles.modalLabel}>Dirección</Text>
               <TextInput
                 style={styles.modalInput}
                 value={editData.direccion}
@@ -245,7 +259,9 @@ export default function ProfileScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
