@@ -94,23 +94,20 @@ export function connectGlobalWebSocket(usuarioId: number) {
         }
       };
 
-      socket.onerror = () => {
-        // Error silencioso - se manejará en onclose
-        console.log('[GlobalWebSocket] ⚠️ Error de conexión');
+      socket.onerror = (err) => {
+        console.error('[GlobalWebSocket] Error:', err);
       };
 
-      socket.onclose = (event) => {
+      socket.onclose = () => {
         console.log('[GlobalWebSocket] Conexión cerrada');
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
-          console.log(`[GlobalWebSocket] 🔄 Reintentando conexión (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+          console.log(`[GlobalWebSocket] Reintentando conexión (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
           setTimeout(connect, RECONNECT_DELAY_MS);
-        } else {
-          console.log('[GlobalWebSocket] ❌ No se pudo conectar al servidor. Verifica que el backend esté corriendo.');
         }
       };
     } catch (err) {
-      console.error('[GlobalWebSocket] Error creando WebSocket');
+      console.error('[GlobalWebSocket] Error creando WebSocket:', err);
     }
   };
 

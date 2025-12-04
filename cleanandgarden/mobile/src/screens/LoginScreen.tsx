@@ -10,7 +10,6 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -174,19 +173,11 @@ export default function LoginScreen({ navigation }: any) {
             )}
           </TouchableOpacity>
 
-          {/* Olvidaste tu contraseña */}
-          <TouchableOpacity
-            style={styles.forgotPasswordContainer}
-            onPress={() => Linking.openURL('https://clean-and-garden-plum.vercel.app/forgot-password')}
-          >
-            <Text style={styles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
-          </TouchableOpacity>
-
           {/* Registro */}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>¿No tienes una cuenta? </Text>
             <TouchableOpacity
-              onPress={() => Linking.openURL('https://clean-and-garden-plum.vercel.app/register')}
+              onPress={() => Alert.alert("Registro próximamente")}
             >
               <Text style={styles.registerLink}>Regístrate</Text>
             </TouchableOpacity>
@@ -258,15 +249,6 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  forgotPasswordContainer: {
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  forgotPasswordText: {
-    color: "#2E5430",
-    fontSize: 14,
-    fontWeight: "500",
-  },
   registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
